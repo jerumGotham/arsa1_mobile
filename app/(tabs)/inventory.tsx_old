@@ -1,0 +1,90 @@
+import { useCallback, useEffect, useState } from "react";
+import { ScrollView, Text, StyleSheet, ActivityIndicator } from "react-native";
+import { theme } from "@/constants/theme";
+import AppInput from "@/components/AppInput";
+import AppCard from "@/components/AppCard";
+import { getInventory } from "@/services/inventoryApi";
+import { useFocusEffect } from "expo-router";
+
+export default function InventoryScreen() {
+  const [inventory, setInventory] = useState<any[]>([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function loadInventory(value = search) {
+    try {
+      setLoading(true);
+      const data = await getInventory(value);
+      setInventory(data);
+    } catch (error) {
+      console.log("Inventory error:", error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useFocusEffect(
+    useCallback(() => {
+      loadInventory("");
+    }, []),
+  );
+
+  return (
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <Text style={styles.title}>Inventory</Text>
+
+      <AppInput
+        placeholder="Search product"
+        value={search}
+        onChangeText={(text) => {
+          setSearch(text);
+          loadInventory(text);
+        }}
+      />
+
+      {loading && <ActivityIndicator color={theme.colors.primary} />}
+
+      {inventory.map((item) => (
+        <AppCard key={item.id}>
+          <Text style={styles.name}>{item.product?.name}</Text>
+          <Text style={styles.info}>
+            Original Quantity: {item.originalQuantity}
+          </Text>
+          <Text style={styles.info}>Sold Quantity: {item.soldQuantity}</Text>
+          <Text style={styles.remaining}>
+            Remaining Quantity: {item.remainingQuantity}
+          </Text>
+        </AppCard>
+      ))}
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: theme.colors.background },
+  content: {
+    padding: theme.spacing.md,
+    paddingTop: 60,
+    gap: theme.spacing.md,
+  },
+  title: {
+    fontSize: theme.fontSize.xl,
+    fontWeight: "900",
+    color: theme.colors.text,
+  },
+  name: {
+    fontSize: theme.fontSize.md,
+    fontWeight: "900",
+    color: theme.colors.text,
+  },
+  info: {
+    marginTop: 6,
+    color: theme.colors.textMuted,
+    fontWeight: "600",
+  },
+  remaining: {
+    marginTop: 8,
+    color: theme.colors.primary,
+    fontWeight: "900",
+  },
+});

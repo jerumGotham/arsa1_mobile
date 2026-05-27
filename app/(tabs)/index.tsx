@@ -1,98 +1,210 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { useCallback, useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  ActivityIndicator,
+  RefreshControl,
+  TouchableOpacity,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { router, useFocusEffect } from "expo-router";
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+import { theme } from "@/constants/theme";
+import StatCard from "@/components/StatCard";
+import AppCard from "@/components/AppCard";
+import { getDashboardSummary } from "@/services/dashboardApi";
+import { getOrders } from "@/services/orderApi";
 
-export default function HomeScreen() {
+export default function DashboardScreen() {
+  const [summary, setSummary] = useState({
+    totalSales: 0,
+    totalOrders: 0,
+    totalItemsSold: 0,
+  });
+
+  const [orders, setOrders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function loadDashboard(showMainLoader = true) {
+    try {
+      if (showMainLoader) setLoading(true);
+
+      const summaryData = await getDashboardSummary();
+      const orderData = await getOrders();
+
+      setSummary(summaryData);
+      setOrders(orderData.slice(0, 5));
+    } catch (error) {
+      console.log("Dashboard error:", error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }
+
+  async function onRefresh() {
+    setRefreshing(true);
+    await loadDashboard(false);
+  }
+
+  function openCustomer(order: any) {
+    router.push({
+      pathname: "/customers",
+      params: {
+        customerId: order.customer?.id,
+        customerName: order.customer?.name,
+      },
+    });
+  }
+
+  useFocusEffect(
+    useCallback(() => {
+      loadDashboard();
+    }, []),
+  );
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.center} edges={["top", "left", "right"]}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+    <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.colors.primary}
+            colors={[theme.colors.primary]}
+          />
+        }
+      >
+        <Text style={styles.logo}>ARSA 1</Text>
+        <Text style={styles.subtitle}>Smart POS & Inventory</Text>
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+        <View style={styles.heroCard}>
+          <Text style={styles.heroLabel}>Total Sales Today</Text>
+          <Text style={styles.heroValue}>
+            ₱{Number(summary.totalSales).toLocaleString()}
+          </Text>
+          <Text style={styles.heroSubtext}>Pull down to refresh records</Text>
+        </View>
+
+        <View style={styles.row}>
+          <StatCard label="Orders" value={String(summary.totalOrders)} />
+          <StatCard label="Items Sold" value={String(summary.totalItemsSold)} />
+        </View>
+
+        <Text style={styles.sectionTitle}>Recent Orders</Text>
+
+        {orders.length === 0 ? (
+          <AppCard>
+            <Text style={styles.orderInfo}>No orders yet today.</Text>
+          </AppCard>
+        ) : (
+          orders.map((order) => (
+            <TouchableOpacity
+              key={order.id}
+              activeOpacity={0.8}
+              onPress={() => openCustomer(order)}
+            >
+              <AppCard>
+                <Text style={styles.orderName}>
+                  {order.customer?.name || "Unknown Customer"}
+                </Text>
+                <Text style={styles.orderInfo}>
+                  {order.items?.length || 0} items • ₱
+                  {Number(order.totalAmount).toLocaleString()}
+                </Text>
+              </AppCard>
+            </TouchableOpacity>
+          ))
+        )}
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  center: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.background,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  container: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  content: {
+    padding: theme.spacing.md,
+    paddingTop: 20,
+    paddingBottom: 40,
+    gap: theme.spacing.md,
+  },
+  logo: {
+    fontSize: 32,
+    fontWeight: "900",
+    color: theme.colors.primaryDark,
+  },
+  subtitle: {
+    fontSize: theme.fontSize.sm,
+    color: theme.colors.textMuted,
+    fontWeight: "700",
+  },
+  heroCard: {
+    backgroundColor: theme.colors.primary,
+    borderRadius: theme.radius.xl,
+    padding: theme.spacing.lg,
+  },
+  heroLabel: {
+    color: "#DCFCE7",
+    fontSize: theme.fontSize.sm,
+    fontWeight: "700",
+  },
+  heroValue: {
+    marginTop: 10,
+    color: theme.colors.white,
+    fontSize: 34,
+    fontWeight: "900",
+  },
+  heroSubtext: {
+    marginTop: 8,
+    color: "#BBF7D0",
+    fontWeight: "700",
+  },
+  row: {
+    flexDirection: "row",
+    gap: theme.spacing.md,
+  },
+  sectionTitle: {
+    fontSize: theme.fontSize.lg,
+    fontWeight: "900",
+    color: theme.colors.text,
+  },
+  orderName: {
+    fontSize: theme.fontSize.md,
+    fontWeight: "800",
+    color: theme.colors.blue,
+    textDecorationLine: "underline",
+  },
+  orderInfo: {
+    marginTop: 4,
+    color: theme.colors.textMuted,
+    fontWeight: "600",
+  },
+  openText: {
+    marginTop: 6,
+    color: theme.colors.primary,
+    fontWeight: "800",
+    fontSize: 12,
   },
 });
