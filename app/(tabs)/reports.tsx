@@ -56,7 +56,16 @@ export default function ReportsScreen() {
     try {
       setDownloading(true);
 
-      const today = new Date().toISOString().split("T")[0];
+      const now = new Date();
+
+      const today =
+        now.toISOString().split("T")[0] +
+        "-" +
+        now.getHours() +
+        "-" +
+        now.getMinutes() +
+        "-" +
+        now.getSeconds();
       const url = getExcelReportUrl();
 
       const fileName = `arsa1-orders-${today}.xlsx`;

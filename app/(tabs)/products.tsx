@@ -11,6 +11,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   RefreshControl,
+  TextInput,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "expo-router";
@@ -169,7 +170,7 @@ export default function ProductsScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      loadProducts(search, false);
+      loadProducts(search, true);
     }, [search]),
   );
 
@@ -287,27 +288,77 @@ export default function ProductsScreen() {
               onChangeText={(text) => setForm({ ...form, name: text })}
             />
 
-            <AppInput
-              placeholder="Price"
-              keyboardType="numeric"
-              value={form.price}
-              onChangeText={(text) => setForm({ ...form, price: text })}
-            />
+            <View style={styles.priceInputWrapper}>
+              <Text style={styles.priceLabel}>Selling Price</Text>
 
+              <View style={styles.priceInputContainer}>
+                <Text style={styles.pricePeso}>₱</Text>
+
+                <TextInput
+                  style={styles.priceInput}
+                  placeholder="0.00"
+                  placeholderTextColor="#94A3B8"
+                  keyboardType="numeric"
+                  value={form.price}
+                  onChangeText={(text) => setForm({ ...form, price: text })}
+                />
+              </View>
+            </View>
+            {/* 
             <AppInput
               placeholder="Category"
               value={form.category}
               onChangeText={(text) => setForm({ ...form, category: text })}
-            />
+            /> */}
+            <View style={styles.quantityWrapper}>
+              <Text style={styles.quantityLabel}>Available Quantity</Text>
 
-            <AppInput
-              placeholder="Available quantity"
-              keyboardType="numeric"
-              value={form.remainingQuantity}
-              onChangeText={(text) =>
-                setForm({ ...form, remainingQuantity: text })
-              }
-            />
+              <View style={styles.quantityContainer}>
+                <TouchableOpacity
+                  style={styles.qtyButton}
+                  onPress={() => {
+                    const current = Number(form.remainingQuantity || 0);
+
+                    if (current > 0) {
+                      setForm({
+                        ...form,
+                        remainingQuantity: String(current - 1),
+                      });
+                    }
+                  }}
+                >
+                  <Text style={styles.qtyButtonText}>−</Text>
+                </TouchableOpacity>
+
+                <TextInput
+                  style={styles.quantityInput}
+                  keyboardType="numeric"
+                  placeholder="0"
+                  placeholderTextColor="#94A3B8"
+                  value={form.remainingQuantity}
+                  onChangeText={(text) =>
+                    setForm({
+                      ...form,
+                      remainingQuantity: text.replace(/[^0-9]/g, ""),
+                    })
+                  }
+                />
+
+                <TouchableOpacity
+                  style={styles.qtyButton}
+                  onPress={() => {
+                    const current = Number(form.remainingQuantity || 0);
+
+                    setForm({
+                      ...form,
+                      remainingQuantity: String(current + 1),
+                    });
+                  }}
+                >
+                  <Text style={styles.qtyButtonText}>+</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
 
             <AppInput
               placeholder="Description"
@@ -528,5 +579,85 @@ const styles = StyleSheet.create({
     color: theme.colors.primary,
     fontWeight: "900",
     fontSize: 28,
+  },
+  priceInputWrapper: {
+    marginBottom: 14,
+  },
+
+  priceLabel: {
+    marginBottom: 8,
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#374151",
+  },
+
+  priceInputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 14,
+    height: 58,
+  },
+
+  pricePeso: {
+    fontSize: 24,
+    fontWeight: "900",
+    color: theme.colors.primary,
+    marginRight: 10,
+  },
+
+  priceInput: {
+    flex: 1,
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#111827",
+  },
+
+  quantityWrapper: {
+    marginBottom: 16,
+  },
+
+  quantityLabel: {
+    marginBottom: 8,
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#374151",
+  },
+
+  quantityContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 16,
+    overflow: "hidden",
+    height: 60,
+  },
+
+  qtyButton: {
+    width: 64,
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F3F4F6",
+  },
+
+  qtyButtonText: {
+    fontSize: 28,
+    fontWeight: "900",
+    color: theme.colors.primary,
+  },
+
+  quantityInput: {
+    flex: 1,
+    textAlign: "center",
+    fontSize: 24,
+    fontWeight: "900",
+    color: "#111827",
   },
 });

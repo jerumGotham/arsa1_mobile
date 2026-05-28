@@ -538,6 +538,7 @@ export default function OrdersScreen() {
               style={styles.input}
               placeholder="Customer name"
               value={newCustomerName}
+              placeholderTextColor="#64748B"
               onChangeText={setNewCustomerName}
             />
 
@@ -545,6 +546,7 @@ export default function OrdersScreen() {
               style={styles.input}
               placeholder="Contact number"
               keyboardType="phone-pad"
+              placeholderTextColor="#64748B"
               value={newCustomerContact}
               onChangeText={setNewCustomerContact}
             />
@@ -553,6 +555,7 @@ export default function OrdersScreen() {
               style={[styles.input, styles.addressInput]}
               placeholder="Address"
               value={newCustomerAddress}
+              placeholderTextColor="#64748B"
               onChangeText={setNewCustomerAddress}
               multiline
             />
@@ -622,6 +625,7 @@ export default function OrdersScreen() {
                   <TextInput
                     style={styles.qtyInput}
                     value={String(item.quantity)}
+                    placeholderTextColor="#64748B"
                     keyboardType="number-pad"
                     onChangeText={(value) => updateQty(item.productId, value)}
                   />
@@ -939,14 +943,19 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: "#D1D5DB",
     borderRadius: 12,
     padding: 12,
     marginBottom: 10,
     fontWeight: "700",
-    backgroundColor: "#fff",
+    backgroundColor: "#FFFFFF",
+    color: "#111827",
   },
-  addressInput: { minHeight: 80, textAlignVertical: "top" },
+
+  addressInput: {
+    minHeight: 80,
+    textAlignVertical: "top",
+  },
   modalActions: { flexDirection: "row", gap: 10, marginTop: 8 },
   cancelButton: {
     flex: 1,

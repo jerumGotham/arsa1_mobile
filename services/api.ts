@@ -1,6 +1,6 @@
 import axios from "axios";
 
-export const API_BASE_URL = "http://192.168.1.4:5000/api";
+export const API_BASE_URL = "https://arsa1-api.onrender.com/api";
 
 // For Android emulator use:
 // export const API_BASE_URL = "http://10.0.2.2:5000/api";
