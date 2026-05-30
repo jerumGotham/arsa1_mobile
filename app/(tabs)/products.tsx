@@ -13,7 +13,10 @@ import {
   RefreshControl,
   TextInput,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { useFocusEffect } from "expo-router";
 import Toast from "react-native-toast-message";
 
@@ -29,7 +32,11 @@ import {
 } from "@/services/productApi";
 
 export default function ProductsScreen() {
+  const insets = useSafeAreaInsets();
+
   const [products, setProducts] = useState<any[]>([]);
+  const [visibleCount, setVisibleCount] = useState(6);
+
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -49,6 +56,9 @@ export default function ProductsScreen() {
   async function loadProducts(value = search, showLoader = true) {
     try {
       if (showLoader) setLoading(true);
+
+      setVisibleCount(6);
+
       const data = await getProducts(value);
       setProducts(data);
     } catch (error) {
@@ -171,13 +181,22 @@ export default function ProductsScreen() {
   useFocusEffect(
     useCallback(() => {
       loadProducts(search, true);
-    }, [search]),
+    }, []),
   );
 
+  const visibleProducts = products.slice(0, visibleCount);
+  const hasMoreProducts = visibleCount < products.length;
+
   return (
-    <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
+    <SafeAreaView
+      style={styles.container}
+      edges={["top", "left", "right", "bottom"]}
+    >
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: 80 + insets.bottom },
+        ]}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -221,164 +240,191 @@ export default function ProductsScreen() {
           </AppCard>
         )}
 
-        {products.map((item) => (
-          <View key={item.id} style={styles.productCard}>
-            <View style={styles.productTop}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.name}>{item.name}</Text>
-                <Text style={styles.info}>SKU: {item.sku || "No SKU"}</Text>
-                <Text style={styles.info}>
-                  Category: {item.category || "General"}
+        {!loading &&
+          visibleProducts.map((item) => (
+            <View key={item.id} style={styles.productCard}>
+              <View style={styles.productTop}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.name}>{item.name}</Text>
+                  <Text style={styles.info}>SKU: {item.sku || "No SKU"}</Text>
+                  <Text style={styles.info}>
+                    Category: {item.category || "General"}
+                  </Text>
+                </View>
+
+                <View style={styles.priceBadge}>
+                  <Text style={styles.price}>
+                    ₱{Number(item.price).toLocaleString()}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.availableBox}>
+                <Text style={styles.availableLabel}>Remaining Available</Text>
+                <Text style={styles.availableValue}>
+                  {item.inventory?.remainingQuantity ?? 0}
                 </Text>
               </View>
 
-              <View style={styles.priceBadge}>
-                <Text style={styles.price}>
-                  ₱{Number(item.price).toLocaleString()}
-                </Text>
+              {item.description ? (
+                <Text style={styles.description}>{item.description}</Text>
+              ) : null}
+
+              <View style={styles.actions}>
+                <TouchableOpacity
+                  style={styles.editButton}
+                  onPress={() => openEditModal(item)}
+                >
+                  <Text style={styles.editButtonText}>Edit / Update Qty</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.deleteButton}
+                  onPress={() => handleDelete(item)}
+                >
+                  <Text style={styles.deleteButtonText}>Delete</Text>
+                </TouchableOpacity>
               </View>
             </View>
+          ))}
 
-            <View style={styles.availableBox}>
-              <Text style={styles.availableLabel}>Remaining Available</Text>
-              <Text style={styles.availableValue}>
-                {item.inventory?.remainingQuantity ?? 0}
-              </Text>
-            </View>
-
-            {item.description ? (
-              <Text style={styles.description}>{item.description}</Text>
-            ) : null}
-
-            <View style={styles.actions}>
-              <TouchableOpacity
-                style={styles.editButton}
-                onPress={() => openEditModal(item)}
-              >
-                <Text style={styles.editButtonText}>Edit / Update Qty</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.deleteButton}
-                onPress={() => handleDelete(item)}
-              >
-                <Text style={styles.deleteButtonText}>Delete</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ))}
+        {!loading && hasMoreProducts && (
+          <TouchableOpacity
+            style={styles.loadMoreButton}
+            onPress={() => setVisibleCount((prev) => prev + 6)}
+          >
+            <Text style={styles.loadMoreText}>
+              Load More ({products.length - visibleCount} left)
+            </Text>
+          </TouchableOpacity>
+        )}
       </ScrollView>
 
       <Modal visible={modalVisible} transparent animationType="slide">
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          style={styles.modalOverlay}
-        >
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>
-              {selectedProduct ? "Edit Product" : "Add Product"}
-            </Text>
-            <Text style={styles.modalSubtitle}>
-              Update product details and available quantity
-            </Text>
+        <SafeAreaView style={styles.modalSafeArea} edges={["top", "bottom"]}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={styles.modalOverlay}
+          >
+            <View
+              style={[
+                styles.modalCard,
+                { paddingBottom: theme.spacing.lg + insets.bottom },
+              ]}
+            >
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                <Text style={styles.modalTitle}>
+                  {selectedProduct ? "Edit Product" : "Add Product"}
+                </Text>
 
-            <AppInput
-              placeholder="Product name"
-              value={form.name}
-              onChangeText={(text) => setForm({ ...form, name: text })}
-            />
+                <Text style={styles.modalSubtitle}>
+                  Update product details and available quantity
+                </Text>
 
-            <View style={styles.priceInputWrapper}>
-              <Text style={styles.priceLabel}>Selling Price</Text>
-
-              <View style={styles.priceInputContainer}>
-                <Text style={styles.pricePeso}>₱</Text>
-
-                <TextInput
-                  style={styles.priceInput}
-                  placeholder="0.00"
-                  placeholderTextColor="#94A3B8"
-                  keyboardType="numeric"
-                  value={form.price}
-                  onChangeText={(text) => setForm({ ...form, price: text })}
+                <AppInput
+                  placeholder="Product name"
+                  value={form.name}
+                  onChangeText={(text) => setForm({ ...form, name: text })}
                 />
-              </View>
-            </View>
-            {/* 
-            <AppInput
-              placeholder="Category"
-              value={form.category}
-              onChangeText={(text) => setForm({ ...form, category: text })}
-            /> */}
-            <View style={styles.quantityWrapper}>
-              <Text style={styles.quantityLabel}>Available Quantity</Text>
 
-              <View style={styles.quantityContainer}>
-                <TouchableOpacity
-                  style={styles.qtyButton}
-                  onPress={() => {
-                    const current = Number(form.remainingQuantity || 0);
+                <View style={styles.priceInputWrapper}>
+                  <Text style={styles.priceLabel}>Selling Price</Text>
 
-                    if (current > 0) {
-                      setForm({
-                        ...form,
-                        remainingQuantity: String(current - 1),
-                      });
-                    }
-                  }}
-                >
-                  <Text style={styles.qtyButtonText}>−</Text>
-                </TouchableOpacity>
+                  <View style={styles.priceInputContainer}>
+                    <Text style={styles.pricePeso}>₱</Text>
 
-                <TextInput
-                  style={styles.quantityInput}
-                  keyboardType="numeric"
-                  placeholder="0"
-                  placeholderTextColor="#94A3B8"
-                  value={form.remainingQuantity}
+                    <TextInput
+                      style={styles.priceInput}
+                      placeholder="0.00"
+                      placeholderTextColor="#94A3B8"
+                      keyboardType="decimal-pad"
+                      value={form.price}
+                      onChangeText={(text) =>
+                        setForm({
+                          ...form,
+                          price: text.replace(/[^0-9.]/g, ""),
+                        })
+                      }
+                    />
+                  </View>
+                </View>
+
+                <View style={styles.quantityWrapper}>
+                  <Text style={styles.quantityLabel}>Available Quantity</Text>
+
+                  <View style={styles.quantityContainer}>
+                    <TouchableOpacity
+                      style={styles.qtyButton}
+                      onPress={() => {
+                        const current = Number(form.remainingQuantity || 0);
+
+                        if (current > 0) {
+                          setForm({
+                            ...form,
+                            remainingQuantity: String(current - 1),
+                          });
+                        }
+                      }}
+                    >
+                      <Text style={styles.qtyButtonText}>−</Text>
+                    </TouchableOpacity>
+
+                    <TextInput
+                      style={styles.quantityInput}
+                      keyboardType="number-pad"
+                      placeholder="0"
+                      placeholderTextColor="#94A3B8"
+                      value={form.remainingQuantity}
+                      onChangeText={(text) =>
+                        setForm({
+                          ...form,
+                          remainingQuantity: text.replace(/[^0-9]/g, ""),
+                        })
+                      }
+                    />
+
+                    <TouchableOpacity
+                      style={styles.qtyButton}
+                      onPress={() => {
+                        const current = Number(form.remainingQuantity || 0);
+
+                        setForm({
+                          ...form,
+                          remainingQuantity: String(current + 1),
+                        });
+                      }}
+                    >
+                      <Text style={styles.qtyButtonText}>+</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <AppInput
+                  placeholder="Description"
+                  value={form.description}
                   onChangeText={(text) =>
-                    setForm({
-                      ...form,
-                      remainingQuantity: text.replace(/[^0-9]/g, ""),
-                    })
+                    setForm({ ...form, description: text })
                   }
                 />
 
-                <TouchableOpacity
-                  style={styles.qtyButton}
-                  onPress={() => {
-                    const current = Number(form.remainingQuantity || 0);
-
-                    setForm({
-                      ...form,
-                      remainingQuantity: String(current + 1),
-                    });
-                  }}
-                >
-                  <Text style={styles.qtyButtonText}>+</Text>
-                </TouchableOpacity>
-              </View>
+                <View style={styles.modalActions}>
+                  <AppButton
+                    title="Cancel"
+                    variant="outline"
+                    onPress={() => setModalVisible(false)}
+                  />
+                  <AppButton
+                    title={selectedProduct ? "Update Product" : "Save Product"}
+                    onPress={handleSaveProduct}
+                  />
+                </View>
+              </ScrollView>
             </View>
-
-            <AppInput
-              placeholder="Description"
-              value={form.description}
-              onChangeText={(text) => setForm({ ...form, description: text })}
-            />
-
-            <View style={styles.modalActions}>
-              <AppButton
-                title="Cancel"
-                variant="outline"
-                onPress={() => setModalVisible(false)}
-              />
-              <AppButton
-                title={selectedProduct ? "Update Product" : "Save Product"}
-                onPress={handleSaveProduct}
-              />
-            </View>
-          </View>
-        </KeyboardAvoidingView>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
       </Modal>
     </SafeAreaView>
   );
@@ -392,7 +438,6 @@ const styles = StyleSheet.create({
   content: {
     padding: theme.spacing.md,
     paddingTop: 20,
-    paddingBottom: 40,
     gap: theme.spacing.md,
   },
   header: {
@@ -469,31 +514,6 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     fontSize: 14,
   },
-  stockBox: {
-    marginTop: 14,
-    backgroundColor: "#F8FAFC",
-    borderRadius: theme.radius.md,
-    padding: theme.spacing.md,
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  stockLabel: {
-    color: theme.colors.textMuted,
-    fontWeight: "700",
-    fontSize: 12,
-  },
-  stockValue: {
-    marginTop: 4,
-    color: theme.colors.text,
-    fontWeight: "900",
-    fontSize: 16,
-  },
-  stockValuePrimary: {
-    marginTop: 4,
-    color: theme.colors.primary,
-    fontWeight: "900",
-    fontSize: 16,
-  },
   description: {
     marginTop: 10,
     color: theme.colors.text,
@@ -534,9 +554,23 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
     fontWeight: "700",
   },
-  modalOverlay: {
+  loadMoreButton: {
+    backgroundColor: "#E5E7EB",
+    paddingVertical: 15,
+    borderRadius: theme.radius.md,
+    alignItems: "center",
+  },
+  loadMoreText: {
+    color: theme.colors.text,
+    fontWeight: "900",
+    fontSize: 15,
+  },
+  modalSafeArea: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.45)",
+  },
+  modalOverlay: {
+    flex: 1,
     justifyContent: "flex-end",
   },
   modalCard: {
@@ -544,23 +578,23 @@ const styles = StyleSheet.create({
     padding: theme.spacing.lg,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    gap: theme.spacing.md,
     maxHeight: "92%",
   },
   modalTitle: {
     fontSize: 24,
     fontWeight: "900",
     color: theme.colors.text,
+    marginBottom: 8,
   },
   modalSubtitle: {
     color: theme.colors.textMuted,
     fontWeight: "700",
-    marginTop: -8,
+    marginBottom: theme.spacing.md,
   },
   modalActions: {
     gap: 10,
+    marginTop: theme.spacing.md,
   },
-
   availableBox: {
     marginTop: 14,
     backgroundColor: "#F0FDF4",
@@ -583,14 +617,12 @@ const styles = StyleSheet.create({
   priceInputWrapper: {
     marginBottom: 14,
   },
-
   priceLabel: {
     marginBottom: 8,
     fontSize: 13,
     fontWeight: "800",
     color: "#374151",
   },
-
   priceInputContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -601,32 +633,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     height: 58,
   },
-
   pricePeso: {
     fontSize: 24,
     fontWeight: "900",
     color: theme.colors.primary,
     marginRight: 10,
   },
-
   priceInput: {
     flex: 1,
     fontSize: 22,
     fontWeight: "800",
     color: "#111827",
   },
-
   quantityWrapper: {
     marginBottom: 16,
   },
-
   quantityLabel: {
     marginBottom: 8,
     fontSize: 13,
     fontWeight: "800",
     color: "#374151",
   },
-
   quantityContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -638,7 +665,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     height: 60,
   },
-
   qtyButton: {
     width: 64,
     height: "100%",
@@ -646,13 +672,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#F3F4F6",
   },
-
   qtyButtonText: {
     fontSize: 28,
     fontWeight: "900",
     color: theme.colors.primary,
   },
-
   quantityInput: {
     flex: 1,
     textAlign: "center",

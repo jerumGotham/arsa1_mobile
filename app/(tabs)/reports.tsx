@@ -8,6 +8,7 @@ import {
   RefreshControl,
   TouchableOpacity,
   Alert,
+  TextInput,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "expo-router";
@@ -22,6 +23,8 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import Toast from "react-native-toast-message";
 
+const getTodayDate = () => new Date().toISOString().split("T")[0];
+
 export default function ReportsScreen() {
   const [summary, setSummary] = useState({
     totalSales: 0,
@@ -29,6 +32,7 @@ export default function ReportsScreen() {
     totalItemsSold: 0,
   });
 
+  const [selectedDate, setSelectedDate] = useState(getTodayDate());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -54,25 +58,16 @@ export default function ReportsScreen() {
 
   async function handleDownload() {
     try {
+      if (!selectedDate) {
+        Alert.alert("Required", "Please enter a report date.");
+        return;
+      }
+
       setDownloading(true);
 
-      const now = new Date();
-
-      const today =
-        now.toISOString().split("T")[0] +
-        "-" +
-        now.getHours() +
-        "-" +
-        now.getMinutes() +
-        "-" +
-        now.getSeconds();
-      const url = getExcelReportUrl();
-
-      const fileName = `arsa1-orders-${today}.xlsx`;
+      const url = getExcelReportUrl(selectedDate);
+      const fileName = `arsa1-orders-${selectedDate}.xlsx`;
       const fileUri = FileSystem.documentDirectory + fileName;
-
-      console.log("Downloading from:", url);
-      console.log("Saving to:", fileUri);
 
       const downloadResult = await FileSystem.downloadAsync(url, fileUri);
 
@@ -101,7 +96,6 @@ export default function ReportsScreen() {
       }
     } catch (error: any) {
       console.log("Download error:", error);
-
       Alert.alert(
         "Download Error",
         error?.message || "Unable to download report.",
@@ -158,6 +152,18 @@ export default function ReportsScreen() {
         <View style={styles.row}>
           <StatCard label="Orders" value={String(summary.totalOrders)} />
           <StatCard label="Items Sold" value={String(summary.totalItemsSold)} />
+        </View>
+
+        <View style={styles.filterCard}>
+          <Text style={styles.filterLabel}>Select Report Date</Text>
+
+          <TextInput
+            style={styles.dateInput}
+            value={selectedDate}
+            onChangeText={setSelectedDate}
+            placeholder="YYYY-MM-DD"
+            placeholderTextColor={theme.colors.textMuted}
+          />
         </View>
 
         <TouchableOpacity
@@ -251,6 +257,25 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     gap: theme.spacing.md,
+  },
+  filterCard: {
+    backgroundColor: theme.colors.white,
+    borderRadius: theme.radius.md,
+    padding: theme.spacing.md,
+  },
+  filterLabel: {
+    fontWeight: "900",
+    color: theme.colors.text,
+    marginBottom: 8,
+  },
+  dateInput: {
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: theme.radius.md,
+    padding: 12,
+    fontWeight: "800",
+    color: theme.colors.text,
+    backgroundColor: theme.colors.white,
   },
   downloadButton: {
     backgroundColor: theme.colors.primaryDark,

@@ -201,15 +201,12 @@ export default function CustomersScreen() {
 
       let receipt = "";
 
-      receipt += "        PLASTIKAN\n";
+      receipt += "        ARSA1\n";
       receipt += "      ORDER RECEIPT\n";
       receipt += "--------------------------------\n";
+      receipt += `Contact Person: JOZHEN\n`;
+      receipt += `Contact Person: 09303816198\n`;
       receipt += `Customer: ${selectedOrder.customer?.name || "CUSTOMER"}\n`;
-      receipt += `Contact : ${
-        selectedOrder.customer?.phone ||
-        selectedOrder.customer?.contactNumber ||
-        "N/A"
-      }\n`;
       receipt += `Address : ${selectedOrder.customer?.address || "N/A"}\n`;
       receipt += "--------------------------------\n";
       receipt += "ITEM              QTY   TOTAL\n";
