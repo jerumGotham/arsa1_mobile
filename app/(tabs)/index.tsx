@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   TouchableOpacity,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router, useFocusEffect } from "expo-router";
@@ -37,8 +38,22 @@ export default function DashboardScreen() {
 
       setSummary(summaryData);
       setOrders(orderData.slice(0, 5));
-    } catch (error) {
+    } catch (error: any) {
       console.log("Dashboard error:", error);
+
+      Alert.alert(
+        "Dashboard Error",
+        JSON.stringify(
+          {
+            message: error?.message,
+            status: error?.response?.status,
+            data: error?.response?.data,
+            url: error?.config?.baseURL + error?.config?.url,
+          },
+          null,
+          2,
+        ),
+      );
     } finally {
       setLoading(false);
       setRefreshing(false);

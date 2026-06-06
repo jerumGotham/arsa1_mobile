@@ -1,3 +1,5 @@
+import DateTimePicker from "@react-native-community/datetimepicker";
+import { Platform } from "react-native";
 import { useCallback, useState } from "react";
 import {
   ScrollView,
@@ -36,6 +38,8 @@ export default function ReportsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [dateValue, setDateValue] = useState(new Date());
 
   async function loadReportSummary(showMainLoader = true) {
     try {
@@ -69,7 +73,11 @@ export default function ReportsScreen() {
       const fileName = `arsa1-orders-${selectedDate}.xlsx`;
       const fileUri = FileSystem.documentDirectory + fileName;
 
-      const downloadResult = await FileSystem.downloadAsync(url, fileUri);
+      const downloadResult = await FileSystem.downloadAsync(url, fileUri, {
+        headers: {
+          "x-api-key": "ARSA1SECRETKEY",
+        },
+      });
 
       if (downloadResult.status !== 200) {
         throw new Error(`Download failed with status ${downloadResult.status}`);
@@ -96,6 +104,7 @@ export default function ReportsScreen() {
       }
     } catch (error: any) {
       console.log("Download error:", error);
+
       Alert.alert(
         "Download Error",
         error?.message || "Unable to download report.",
@@ -156,14 +165,33 @@ export default function ReportsScreen() {
 
         <View style={styles.filterCard}>
           <Text style={styles.filterLabel}>Select Report Date</Text>
-
-          <TextInput
+          <TouchableOpacity
             style={styles.dateInput}
-            value={selectedDate}
-            onChangeText={setSelectedDate}
-            placeholder="YYYY-MM-DD"
-            placeholderTextColor={theme.colors.textMuted}
-          />
+            onPress={() => setShowDatePicker(true)}
+          >
+            <Text style={styles.dateText}>{selectedDate}</Text>
+          </TouchableOpacity>
+
+          {showDatePicker && (
+            <DateTimePicker
+              value={dateValue}
+              mode="date"
+              display={Platform.OS === "ios" ? "spinner" : "default"}
+              onChange={(event, date) => {
+                if (event.type === "dismissed") {
+                  setShowDatePicker(false);
+                  return;
+                }
+
+                if (date) {
+                  setDateValue(date);
+                  setSelectedDate(date.toISOString().split("T")[0]);
+                }
+
+                setShowDatePicker(false);
+              }}
+            />
+          )}
         </View>
 
         <TouchableOpacity
@@ -305,5 +333,9 @@ const styles = StyleSheet.create({
     marginTop: 6,
     color: theme.colors.textMuted,
     fontWeight: "600",
+  },
+  dateText: {
+    fontWeight: "800",
+    color: theme.colors.text,
   },
 });
