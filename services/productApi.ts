@@ -1,8 +1,9 @@
 import api from "./api";
 
-export async function getProducts(search = "") {
+// categoryId: "" for all, "none" for uncategorized, or a category id
+export async function getProducts(search = "", categoryId = "") {
   const response = await api.get("/products", {
-    params: { search },
+    params: { search, categoryId: categoryId || undefined },
   });
 
   return response.data.data;

@@ -1,19 +1,17 @@
 {
   "expo": {
-    "name": "arsa1",
+    "name": "TindaHub",
     "slug": "arsa1",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "arsa1",
-    "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.jerum12.arsa1"
     },
     "android": {
-      "usesCleartextTraffic": true,
       "permissions": [
         "INTERNET",
         "BLUETOOTH",
@@ -26,7 +24,6 @@
         "backgroundColor": "#ffffff",
         "foregroundImage": "./assets/images/android-icon-foreground.png"
       },
-      "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
       "package": "com.jerum12.arsa1"
     },
@@ -49,7 +46,16 @@
         }
       ],
       "expo-font",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

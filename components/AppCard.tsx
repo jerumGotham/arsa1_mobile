@@ -1,9 +1,9 @@
 import { theme } from "@/constants/theme";
-import { View, StyleSheet, ViewStyle } from "react-native";
+import { View, StyleSheet, StyleProp, ViewStyle } from "react-native";
 
 type Props = {
   children: React.ReactNode;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
 };
 
 export default function AppCard({ children, style }: Props) {
@@ -17,6 +17,5 @@ const styles = StyleSheet.create({
     padding: theme.spacing.md,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    ...theme.shadow,
   },
 });

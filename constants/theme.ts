@@ -1,41 +1,34 @@
 /**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
+ * TindaHub design tokens — monochrome (black & white) theme.
+ * `Colors` and `Fonts` are kept for the Expo template components.
  */
 
 import { Platform } from "react-native";
 
-const tintColorLight = "#0a7ea4";
-const tintColorDark = "#fff";
-
 export const Colors = {
   light: {
-    text: "#11181C",
-    background: "#fff",
-    tint: tintColorLight,
-    icon: "#687076",
-    tabIconDefault: "#687076",
-    tabIconSelected: tintColorLight,
+    text: "#0A0A0A",
+    background: "#FFFFFF",
+    tint: "#0A0A0A",
+    icon: "#737373",
+    tabIconDefault: "#737373",
+    tabIconSelected: "#0A0A0A",
   },
   dark: {
-    text: "#ECEDEE",
-    background: "#151718",
-    tint: tintColorDark,
-    icon: "#9BA1A6",
-    tabIconDefault: "#9BA1A6",
-    tabIconSelected: tintColorDark,
+    text: "#FAFAFA",
+    background: "#0A0A0A",
+    tint: "#FFFFFF",
+    icon: "#A3A3A3",
+    tabIconDefault: "#A3A3A3",
+    tabIconSelected: "#FFFFFF",
   },
 };
 
 export const Fonts = Platform.select({
   ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
     sans: "system-ui",
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
     serif: "ui-serif",
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
     rounded: "ui-rounded",
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
     mono: "ui-monospace",
   },
   default: {
@@ -54,25 +47,35 @@ export const Fonts = Platform.select({
 });
 
 export const colors = {
-  primary: "#166534",
-  primaryLight: "#22C55E",
-  primaryDark: "#052E16",
+  primary: "#0A0A0A",
+  primaryLight: "#262626",
+  primaryDark: "#000000",
 
-  background: "#F8FAFC",
+  background: "#F4F4F4",
   card: "#FFFFFF",
+  surface: "#F7F7F7",
+  inverse: "#0A0A0A",
+  inverseMuted: "#A3A3A3",
+  inverseBorder: "#262626",
 
-  text: "#0F172A",
-  textMuted: "#64748B",
+  text: "#0A0A0A",
+  textMuted: "#737373",
+  textSubtle: "#A3A3A3",
 
-  border: "#E2E8F0",
+  border: "#E8E8E8",
+  borderStrong: "#D4D4D4",
 
-  danger: "#EF4444",
-  warning: "#F59E0B",
-  success: "#16A34A",
+  // Used sparingly — destructive actions only.
+  danger: "#B42318",
+  dangerSoft: "#FEF3F2",
+  warning: "#525252",
+  success: "#0A0A0A",
+
+  overlay: "rgba(0, 0, 0, 0.55)",
 
   white: "#FFFFFF",
   black: "#000000",
-  blue: "#2563EB",
+  blue: "#0A0A0A",
 };
 
 export const theme = {
@@ -80,9 +83,10 @@ export const theme = {
 
   radius: {
     sm: 8,
-    md: 14,
-    lg: 20,
-    xl: 28,
+    md: 12,
+    lg: 18,
+    xl: 26,
+    pill: 999,
   },
 
   spacing: {
@@ -101,11 +105,27 @@ export const theme = {
     xl: 28,
   },
 
+  // Small uppercase label above titles / values.
+  eyebrow: {
+    fontSize: 11,
+    fontWeight: "700" as const,
+    letterSpacing: 1.6,
+    textTransform: "uppercase" as const,
+  },
+
   shadow: {
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 2,
+  },
+
+  shadowStrong: {
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 10,
   },
 };
