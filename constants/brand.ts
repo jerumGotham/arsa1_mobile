@@ -4,7 +4,7 @@ export const brand = {
   tagline: "Smart POS & Inventory",
 
   // Header on the receipt image (save to gallery)
-  receiptStoreName: "PLASTIKAN",
+  receiptStoreName: "TINDAHUB",
 
   // Thermal printer receipt
   printHeader: "TINDAHUB",

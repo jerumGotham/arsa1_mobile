@@ -4,6 +4,7 @@ import { Tabs } from "expo-router";
 import {
   Home,
   ShoppingBag,
+  ReceiptText,
   Users,
   BarChart3,
   Package,
@@ -16,11 +17,12 @@ export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const { isAdmin } = useAuth();
 
-  // `href: null` hides a tab. Agents only get Home, Book, Customers, Account.
+  // `href: null` hides a tab. Agents get Home, Book, Orders, Customers, Account.
   const adminOnly = isAdmin ? {} : { href: null };
 
   return (
     <Tabs
+      backBehavior="history"
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: theme.colors.white,
@@ -60,6 +62,16 @@ export default function TabsLayout() {
       />
 
       <Tabs.Screen
+        name="history"
+        options={{
+          title: "Orders",
+          tabBarIcon: ({ color, size }) => (
+            <ReceiptText color={color} size={size - 2} />
+          ),
+        }}
+      />
+
+      <Tabs.Screen
         name="customers"
         options={{
           title: "Customers",
@@ -80,10 +92,11 @@ export default function TabsLayout() {
         }}
       />
 
+      {/* Not in the tab bar; opened from Orders / Account (admin only). */}
       <Tabs.Screen
         name="reports"
         options={{
-          ...adminOnly,
+          href: null,
           title: "Reports",
           tabBarIcon: ({ color, size }) => (
             <BarChart3 color={color} size={size - 2} />

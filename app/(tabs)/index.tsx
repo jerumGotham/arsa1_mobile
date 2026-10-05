@@ -223,9 +223,14 @@ export default function DashboardScreen() {
           </View>
         ) : null}
 
-        <Text style={styles.sectionTitle}>
-          {isAdmin ? "Recent Orders" : "Your Recent Orders"}
-        </Text>
+        <View style={styles.sectionRow}>
+          <Text style={styles.sectionTitle}>
+            {isAdmin ? "Recent Orders" : "Your Recent Orders"}
+          </Text>
+          <TouchableOpacity onPress={() => router.push("/history")} hitSlop={8}>
+            <Text style={styles.seeAll}>See all</Text>
+          </TouchableOpacity>
+        </View>
 
         {orders.length === 0 ? (
           <EmptyState
@@ -412,6 +417,16 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: -0.4,
     color: theme.colors.text,
+  },
+  sectionRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+  },
+  seeAll: {
+    fontWeight: "700",
+    color: theme.colors.text,
+    textDecorationLine: "underline",
   },
   list: {
     backgroundColor: theme.colors.white,
