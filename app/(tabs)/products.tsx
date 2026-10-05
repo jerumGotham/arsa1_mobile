@@ -6,40 +6,52 @@ import {
   ActivityIndicator,
   View,
   Alert,
-  Modal,
   TouchableOpacity,
-  KeyboardAvoidingView,
-  Platform,
   RefreshControl,
   TextInput,
 } from "react-native";
-import {
-  SafeAreaView,
-  useSafeAreaInsets,
-} from "react-native-safe-area-context";
-import { useFocusEffect } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { router, useFocusEffect } from "expo-router";
 import Toast from "react-native-toast-message";
+import {
+  Minus,
+  Package,
+  Pencil,
+  Plus,
+  Search,
+  Tags,
+  Trash2,
+} from "lucide-react-native";
 
 import { theme } from "@/constants/theme";
 import AppInput from "@/components/AppInput";
 import AppButton from "@/components/AppButton";
-import AppCard from "@/components/AppCard";
+import ScreenHeader, { IconButton } from "@/components/ScreenHeader";
+import Sheet from "@/components/Sheet";
+import EmptyState from "@/components/EmptyState";
+import CategoryChips, { CategoryBadge } from "@/components/CategoryChips";
 import {
   getProducts,
   createProduct,
   updateProduct,
   deleteProduct,
 } from "@/services/productApi";
+import { getCategories } from "@/services/categoryApi";
+import { errorMessage } from "@/services/api";
+import { peso } from "@/lib/format";
+
+const LOW_STOCK = 10;
 
 export default function ProductsScreen() {
-  const insets = useSafeAreaInsets();
-
   const [products, setProducts] = useState<any[]>([]);
-  const [visibleCount, setVisibleCount] = useState(6);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [visibleCount, setVisibleCount] = useState(8);
 
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
@@ -48,18 +60,22 @@ export default function ProductsScreen() {
     name: "",
     sku: "",
     price: "",
-    category: "",
+    categoryId: "",
     description: "",
     remainingQuantity: "",
   });
 
-  async function loadProducts(value = search, showLoader = true) {
+  async function loadProducts(
+    value = search,
+    showLoader = true,
+    category = categoryFilter,
+  ) {
     try {
       if (showLoader) setLoading(true);
 
-      setVisibleCount(6);
+      setVisibleCount(8);
 
-      const data = await getProducts(value);
+      const data = await getProducts(value, category);
       setProducts(data);
     } catch (error) {
       console.log("Products error:", error);
@@ -69,9 +85,22 @@ export default function ProductsScreen() {
     }
   }
 
+  async function loadCategories() {
+    try {
+      setCategories(await getCategories());
+    } catch (error) {
+      console.log("Categories error:", error);
+    }
+  }
+
   async function onRefresh() {
     setRefreshing(true);
-    await loadProducts(search, false);
+    await Promise.all([loadProducts(search, false), loadCategories()]);
+  }
+
+  function handleFilterChange(value: string) {
+    setCategoryFilter(value);
+    loadProducts(search, true, value);
   }
 
   function openAddModal() {
@@ -80,7 +109,8 @@ export default function ProductsScreen() {
       name: "",
       sku: "",
       price: "",
-      category: "General",
+      // pre-select the category being browsed
+      categoryId: categoryFilter && categoryFilter !== "none" ? categoryFilter : "",
       description: "",
       remainingQuantity: "0",
     });
@@ -93,7 +123,7 @@ export default function ProductsScreen() {
       name: product.name || "",
       sku: product.sku || "",
       price: String(product.price || ""),
-      category: product.category || "General",
+      categoryId: product.categoryId || "",
       description: product.description || "",
       remainingQuantity: String(product.inventory?.remainingQuantity ?? 0),
     });
@@ -120,12 +150,14 @@ export default function ProductsScreen() {
       name: form.name.trim(),
       sku: form.sku.trim() || null,
       price: Number(form.price),
-      category: form.category.trim() || "General",
+      categoryId: form.categoryId || null,
       description: form.description.trim(),
       remainingQuantity: Number(form.remainingQuantity || 0),
     };
 
     try {
+      setSaving(true);
+
       if (selectedProduct) {
         await updateProduct(selectedProduct.id, payload);
         Toast.show({
@@ -144,11 +176,11 @@ export default function ProductsScreen() {
 
       setModalVisible(false);
       loadProducts(search);
+      loadCategories();
     } catch (error: any) {
-      Alert.alert(
-        "Error",
-        error?.response?.data?.message || "Unable to save product.",
-      );
+      Alert.alert("Error", errorMessage(error, "Unable to save product."));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -170,7 +202,7 @@ export default function ProductsScreen() {
           } catch (error: any) {
             Alert.alert(
               "Cannot Delete",
-              error?.response?.data?.message || "Unable to delete product.",
+              errorMessage(error, "Unable to delete product."),
             );
           }
         },
@@ -180,6 +212,7 @@ export default function ProductsScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      loadCategories();
       loadProducts(search, true);
     }, []),
   );
@@ -188,15 +221,10 @@ export default function ProductsScreen() {
   const hasMoreProducts = visibleCount < products.length;
 
   return (
-    <SafeAreaView
-      style={styles.container}
-      edges={["top", "left", "right", "bottom"]}
-    >
+    <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
       <ScrollView
-        contentContainerStyle={[
-          styles.content,
-          { paddingBottom: 80 + insets.bottom },
-        ]}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -206,18 +234,20 @@ export default function ProductsScreen() {
           />
         }
       >
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.title}>Products</Text>
-            <Text style={styles.subtitle}>
-              Manage price and available stock
-            </Text>
-          </View>
-
-          <TouchableOpacity style={styles.addTopButton} onPress={openAddModal}>
-            <Text style={styles.addTopButtonText}>+</Text>
-          </TouchableOpacity>
-        </View>
+        <ScreenHeader
+          eyebrow={`${products.length} item${products.length === 1 ? "" : "s"}`}
+          title="Products"
+          right={
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <IconButton dark={false} onPress={() => router.push("/categories")}>
+                <Tags size={20} color={theme.colors.text} />
+              </IconButton>
+              <IconButton onPress={openAddModal}>
+                <Plus size={22} color={theme.colors.white} />
+              </IconButton>
+            </View>
+          }
+        />
 
         <AppInput
           placeholder="Search product, SKU, or category"
@@ -226,206 +256,222 @@ export default function ProductsScreen() {
             setSearch(text);
             loadProducts(text);
           }}
+          icon={<Search size={18} color={theme.colors.textMuted} />}
         />
 
-        <TouchableOpacity style={styles.addFullButton} onPress={openAddModal}>
-          <Text style={styles.addFullButtonText}>+ Add Product</Text>
-        </TouchableOpacity>
+        <CategoryChips
+          categories={categories}
+          value={categoryFilter}
+          onChange={handleFilterChange}
+          showUncategorized
+        />
 
         {loading && <ActivityIndicator color={theme.colors.primary} />}
 
         {!loading && products.length === 0 && (
-          <AppCard>
-            <Text style={styles.emptyText}>No products found.</Text>
-          </AppCard>
+          <EmptyState
+            icon={<Package size={22} color={theme.colors.textMuted} />}
+            title="No products found"
+            message="Try a different search or category."
+          />
         )}
 
         {!loading &&
-          visibleProducts.map((item) => (
-            <View key={item.id} style={styles.productCard}>
-              <View style={styles.productTop}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.name}>{item.name}</Text>
-                  <Text style={styles.info}>SKU: {item.sku || "No SKU"}</Text>
-                  <Text style={styles.info}>
-                    Category: {item.category || "General"}
-                  </Text>
+          visibleProducts.map((item) => {
+            const stock = item.inventory?.remainingQuantity ?? 0;
+
+            return (
+              <View key={item.id} style={styles.card}>
+                <View style={styles.cardTop}>
+                  <View style={{ flex: 1, gap: 6 }}>
+                    <CategoryBadge name={item.category?.name} />
+                    <Text style={styles.name}>{item.name}</Text>
+                    <Text style={styles.sku}>SKU · {item.sku || "—"}</Text>
+                  </View>
+
+                  <Text style={styles.price}>{peso(item.price, 2)}</Text>
                 </View>
 
-                <View style={styles.priceBadge}>
-                  <Text style={styles.price}>
-                    ₱{Number(item.price).toLocaleString()}
-                  </Text>
+                <View style={styles.stockRow}>
+                  <View>
+                    <Text style={styles.stockLabel}>In Stock</Text>
+                    <Text style={styles.stockValue}>{stock}</Text>
+                  </View>
+
+                  {stock <= LOW_STOCK ? (
+                    <Text style={[styles.stockTag, stock <= 0 && styles.stockOut]}>
+                      {stock <= 0 ? "Out of stock" : "Low stock"}
+                    </Text>
+                  ) : null}
+                </View>
+
+                {item.description ? (
+                  <Text style={styles.description}>{item.description}</Text>
+                ) : null}
+
+                <View style={styles.actions}>
+                  <TouchableOpacity
+                    style={styles.actionButton}
+                    onPress={() => openEditModal(item)}
+                  >
+                    <Pencil size={14} color={theme.colors.text} />
+                    <Text style={styles.actionText}>Edit / Restock</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.actionButton, { flex: 0, paddingHorizontal: 14 }]}
+                    onPress={() => handleDelete(item)}
+                  >
+                    <Trash2 size={14} color={theme.colors.danger} />
+                  </TouchableOpacity>
                 </View>
               </View>
-
-              <View style={styles.availableBox}>
-                <Text style={styles.availableLabel}>Remaining Available</Text>
-                <Text style={styles.availableValue}>
-                  {item.inventory?.remainingQuantity ?? 0}
-                </Text>
-              </View>
-
-              {item.description ? (
-                <Text style={styles.description}>{item.description}</Text>
-              ) : null}
-
-              <View style={styles.actions}>
-                <TouchableOpacity
-                  style={styles.editButton}
-                  onPress={() => openEditModal(item)}
-                >
-                  <Text style={styles.editButtonText}>Edit / Update Qty</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.deleteButton}
-                  onPress={() => handleDelete(item)}
-                >
-                  <Text style={styles.deleteButtonText}>Delete</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          ))}
+            );
+          })}
 
         {!loading && hasMoreProducts && (
-          <TouchableOpacity
-            style={styles.loadMoreButton}
-            onPress={() => setVisibleCount((prev) => prev + 6)}
-          >
-            <Text style={styles.loadMoreText}>
-              Load More ({products.length - visibleCount} left)
-            </Text>
-          </TouchableOpacity>
+          <AppButton
+            title={`Load more (${products.length - visibleCount} left)`}
+            variant="ghost"
+            onPress={() => setVisibleCount((prev) => prev + 8)}
+          />
         )}
       </ScrollView>
 
-      <Modal visible={modalVisible} transparent animationType="slide">
-        <SafeAreaView style={styles.modalSafeArea} edges={["top", "bottom"]}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-            style={styles.modalOverlay}
-          >
-            <View
-              style={[
-                styles.modalCard,
-                { paddingBottom: theme.spacing.lg + insets.bottom },
-              ]}
+      <Sheet
+        visible={modalVisible}
+        onClose={() => setModalVisible(false)}
+        title={selectedProduct ? "Edit Product" : "New Product"}
+        subtitle="Details, category, and available stock"
+        footer={
+          <>
+            <AppButton
+              title="Cancel"
+              variant="outline"
+              onPress={() => setModalVisible(false)}
+              style={{ flex: 1 }}
+            />
+            <AppButton
+              title={selectedProduct ? "Update" : "Save Product"}
+              onPress={handleSaveProduct}
+              loading={saving}
+              style={{ flex: 1 }}
+            />
+          </>
+        }
+      >
+        <AppInput
+          label="Product Name"
+          placeholder="e.g. 8X11 OK"
+          value={form.name}
+          onChangeText={(text) => setForm({ ...form, name: text })}
+        />
+
+        <View>
+          <Text style={styles.fieldLabel}>Category Type</Text>
+          {categories.length ? (
+            <CategoryChips
+              categories={categories}
+              value={form.categoryId}
+              onChange={(value) =>
+                setForm({
+                  ...form,
+                  // tap the selected chip again to clear it
+                  categoryId: value === form.categoryId ? "" : value,
+                })
+              }
+              showAll={false}
+            />
+          ) : (
+            <Text style={styles.hint}>
+              No categories yet. Add them from the tag icon on Products.
+            </Text>
+          )}
+        </View>
+
+        <View style={styles.twoCol}>
+          <AppInput
+            label="Price"
+            placeholder="0.00"
+            keyboardType="decimal-pad"
+            value={form.price}
+            containerStyle={{ flex: 1 }}
+            icon={<Text style={styles.peso}>₱</Text>}
+            onChangeText={(text) =>
+              setForm({
+                ...form,
+                price: text.replace(/[^0-9.]/g, ""),
+              })
+            }
+          />
+
+          <AppInput
+            label="SKU"
+            placeholder="Optional"
+            autoCapitalize="characters"
+            value={form.sku}
+            containerStyle={{ flex: 1 }}
+            onChangeText={(text) => setForm({ ...form, sku: text })}
+          />
+        </View>
+
+        <View>
+          <Text style={styles.fieldLabel}>Available Quantity</Text>
+          <View style={styles.qtyContainer}>
+            <TouchableOpacity
+              style={styles.qtyButton}
+              onPress={() => {
+                const current = Number(form.remainingQuantity || 0);
+
+                if (current > 0) {
+                  setForm({
+                    ...form,
+                    remainingQuantity: String(current - 1),
+                  });
+                }
+              }}
             >
-              <ScrollView
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
-              >
-                <Text style={styles.modalTitle}>
-                  {selectedProduct ? "Edit Product" : "Add Product"}
-                </Text>
+              <Minus size={20} color={theme.colors.white} />
+            </TouchableOpacity>
 
-                <Text style={styles.modalSubtitle}>
-                  Update product details and available quantity
-                </Text>
+            <TextInput
+              style={styles.qtyInput}
+              keyboardType="number-pad"
+              placeholder="0"
+              placeholderTextColor={theme.colors.textSubtle}
+              selectionColor={theme.colors.text}
+              value={form.remainingQuantity}
+              onChangeText={(text) =>
+                setForm({
+                  ...form,
+                  remainingQuantity: text.replace(/[^0-9]/g, ""),
+                })
+              }
+            />
 
-                <AppInput
-                  placeholder="Product name"
-                  value={form.name}
-                  onChangeText={(text) => setForm({ ...form, name: text })}
-                />
+            <TouchableOpacity
+              style={styles.qtyButton}
+              onPress={() => {
+                const current = Number(form.remainingQuantity || 0);
 
-                <View style={styles.priceInputWrapper}>
-                  <Text style={styles.priceLabel}>Selling Price</Text>
+                setForm({
+                  ...form,
+                  remainingQuantity: String(current + 1),
+                });
+              }}
+            >
+              <Plus size={20} color={theme.colors.white} />
+            </TouchableOpacity>
+          </View>
+        </View>
 
-                  <View style={styles.priceInputContainer}>
-                    <Text style={styles.pricePeso}>₱</Text>
-
-                    <TextInput
-                      style={styles.priceInput}
-                      placeholder="0.00"
-                      placeholderTextColor="#94A3B8"
-                      keyboardType="decimal-pad"
-                      value={form.price}
-                      onChangeText={(text) =>
-                        setForm({
-                          ...form,
-                          price: text.replace(/[^0-9.]/g, ""),
-                        })
-                      }
-                    />
-                  </View>
-                </View>
-
-                <View style={styles.quantityWrapper}>
-                  <Text style={styles.quantityLabel}>Available Quantity</Text>
-
-                  <View style={styles.quantityContainer}>
-                    <TouchableOpacity
-                      style={styles.qtyButton}
-                      onPress={() => {
-                        const current = Number(form.remainingQuantity || 0);
-
-                        if (current > 0) {
-                          setForm({
-                            ...form,
-                            remainingQuantity: String(current - 1),
-                          });
-                        }
-                      }}
-                    >
-                      <Text style={styles.qtyButtonText}>−</Text>
-                    </TouchableOpacity>
-
-                    <TextInput
-                      style={styles.quantityInput}
-                      keyboardType="number-pad"
-                      placeholder="0"
-                      placeholderTextColor="#94A3B8"
-                      value={form.remainingQuantity}
-                      onChangeText={(text) =>
-                        setForm({
-                          ...form,
-                          remainingQuantity: text.replace(/[^0-9]/g, ""),
-                        })
-                      }
-                    />
-
-                    <TouchableOpacity
-                      style={styles.qtyButton}
-                      onPress={() => {
-                        const current = Number(form.remainingQuantity || 0);
-
-                        setForm({
-                          ...form,
-                          remainingQuantity: String(current + 1),
-                        });
-                      }}
-                    >
-                      <Text style={styles.qtyButtonText}>+</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                <AppInput
-                  placeholder="Description"
-                  value={form.description}
-                  onChangeText={(text) =>
-                    setForm({ ...form, description: text })
-                  }
-                />
-
-                <View style={styles.modalActions}>
-                  <AppButton
-                    title="Cancel"
-                    variant="outline"
-                    onPress={() => setModalVisible(false)}
-                  />
-                  <AppButton
-                    title={selectedProduct ? "Update Product" : "Save Product"}
-                    onPress={handleSaveProduct}
-                  />
-                </View>
-              </ScrollView>
-            </View>
-          </KeyboardAvoidingView>
-        </SafeAreaView>
-      </Modal>
+        <AppInput
+          label="Description"
+          placeholder="Optional"
+          value={form.description}
+          onChangeText={(text) => setForm({ ...form, description: text })}
+        />
+      </Sheet>
     </SafeAreaView>
   );
 }
@@ -437,251 +483,138 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: theme.spacing.md,
-    paddingTop: 20,
-    gap: theme.spacing.md,
+    paddingTop: 12,
+    paddingBottom: 40,
+    gap: 12,
   },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: "900",
-    color: theme.colors.text,
-  },
-  subtitle: {
-    color: theme.colors.textMuted,
-    fontWeight: "700",
-    marginTop: 2,
-  },
-  addTopButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: theme.colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  addTopButtonText: {
-    color: theme.colors.white,
-    fontSize: 30,
-    fontWeight: "900",
-    marginTop: -2,
-  },
-  addFullButton: {
-    backgroundColor: theme.colors.primary,
-    paddingVertical: 15,
-    borderRadius: theme.radius.md,
-    alignItems: "center",
-  },
-  addFullButtonText: {
-    color: theme.colors.white,
-    fontWeight: "900",
-    fontSize: 16,
-  },
-  productCard: {
+  card: {
     backgroundColor: theme.colors.white,
     borderRadius: theme.radius.lg,
     borderWidth: 1,
     borderColor: theme.colors.border,
     padding: theme.spacing.md,
-    ...theme.shadow,
   },
-  productTop: {
+  cardTop: {
     flexDirection: "row",
     gap: 12,
     alignItems: "flex-start",
   },
   name: {
-    fontSize: 18,
-    fontWeight: "900",
+    fontSize: 17,
+    fontWeight: "800",
+    letterSpacing: -0.3,
     color: theme.colors.text,
   },
-  info: {
-    marginTop: 5,
+  sku: {
     color: theme.colors.textMuted,
-    fontWeight: "600",
-  },
-  priceBadge: {
-    backgroundColor: "#DCFCE7",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
+    fontWeight: "500",
+    fontSize: 12,
   },
   price: {
-    color: theme.colors.primary,
-    fontWeight: "900",
-    fontSize: 14,
+    fontSize: 18,
+    fontWeight: "800",
+    letterSpacing: -0.4,
+    color: theme.colors.text,
+  },
+  stockRow: {
+    marginTop: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 12,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.surface,
+  },
+  stockLabel: {
+    ...theme.eyebrow,
+    fontSize: 10,
+    color: theme.colors.textMuted,
+  },
+  stockValue: {
+    marginTop: 2,
+    fontSize: 24,
+    fontWeight: "800",
+    letterSpacing: -0.6,
+    color: theme.colors.text,
+  },
+  stockTag: {
+    overflow: "hidden",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    borderColor: theme.colors.text,
+    fontSize: 11,
+    fontWeight: "700",
+    color: theme.colors.text,
+  },
+  stockOut: {
+    backgroundColor: theme.colors.primary,
+    color: theme.colors.white,
   },
   description: {
     marginTop: 10,
-    color: theme.colors.text,
-    fontWeight: "600",
+    color: theme.colors.textMuted,
+    fontWeight: "500",
   },
   actions: {
     flexDirection: "row",
     gap: 8,
-    marginTop: 14,
+    marginTop: 12,
   },
-  editButton: {
+  actionButton: {
     flex: 1,
-    backgroundColor: "#F0FDF4",
-    borderWidth: 1,
-    borderColor: theme.colors.primary,
-    paddingVertical: 12,
-    borderRadius: theme.radius.md,
-    alignItems: "center",
-  },
-  editButtonText: {
-    color: theme.colors.primary,
-    fontWeight: "900",
-  },
-  deleteButton: {
-    flex: 1,
-    backgroundColor: "#FEF2F2",
-    borderWidth: 1,
-    borderColor: "#FECACA",
-    paddingVertical: 12,
-    borderRadius: theme.radius.md,
-    alignItems: "center",
-  },
-  deleteButtonText: {
-    color: theme.colors.danger,
-    fontWeight: "900",
-  },
-  emptyText: {
-    color: theme.colors.textMuted,
-    fontWeight: "700",
-  },
-  loadMoreButton: {
-    backgroundColor: "#E5E7EB",
-    paddingVertical: 15,
-    borderRadius: theme.radius.md,
-    alignItems: "center",
-  },
-  loadMoreText: {
-    color: theme.colors.text,
-    fontWeight: "900",
-    fontSize: 15,
-  },
-  modalSafeArea: {
-    flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.45)",
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-  },
-  modalCard: {
-    backgroundColor: theme.colors.white,
-    padding: theme.spacing.lg,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    maxHeight: "92%",
-  },
-  modalTitle: {
-    fontSize: 24,
-    fontWeight: "900",
-    color: theme.colors.text,
-    marginBottom: 8,
-  },
-  modalSubtitle: {
-    color: theme.colors.textMuted,
-    fontWeight: "700",
-    marginBottom: theme.spacing.md,
-  },
-  modalActions: {
-    gap: 10,
-    marginTop: theme.spacing.md,
-  },
-  availableBox: {
-    marginTop: 14,
-    backgroundColor: "#F0FDF4",
-    borderRadius: theme.radius.md,
-    padding: theme.spacing.md,
-    borderWidth: 1,
-    borderColor: "#BBF7D0",
-  },
-  availableLabel: {
-    color: theme.colors.textMuted,
-    fontWeight: "800",
-    fontSize: 12,
-  },
-  availableValue: {
-    marginTop: 6,
-    color: theme.colors.primary,
-    fontWeight: "900",
-    fontSize: 28,
-  },
-  priceInputWrapper: {
-    marginBottom: 14,
-  },
-  priceLabel: {
-    marginBottom: 8,
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#374151",
-  },
-  priceInputContainer: {
     flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 14,
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 14,
-    height: 58,
-  },
-  pricePeso: {
-    fontSize: 24,
-    fontWeight: "900",
-    color: theme.colors.primary,
-    marginRight: 10,
-  },
-  priceInput: {
-    flex: 1,
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#111827",
-  },
-  quantityWrapper: {
-    marginBottom: 16,
-  },
-  quantityLabel: {
-    marginBottom: 8,
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#374151",
-  },
-  quantityContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 16,
-    overflow: "hidden",
-    height: 60,
-  },
-  qtyButton: {
-    width: 64,
-    height: "100%",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#F3F4F6",
+    gap: 6,
+    height: 40,
+    borderRadius: theme.radius.sm + 2,
+    backgroundColor: theme.colors.surface,
   },
-  qtyButtonText: {
-    fontSize: 28,
-    fontWeight: "900",
-    color: theme.colors.primary,
+  actionText: {
+    color: theme.colors.text,
+    fontWeight: "700",
   },
-  quantityInput: {
+  fieldLabel: {
+    ...theme.eyebrow,
+    color: theme.colors.textMuted,
+    marginBottom: 8,
+  },
+  hint: {
+    color: theme.colors.textMuted,
+  },
+  twoCol: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  peso: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: theme.colors.textMuted,
+  },
+  qtyContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  qtyButton: {
+    width: 52,
+    height: 52,
+    borderRadius: theme.radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.primary,
+  },
+  qtyInput: {
     flex: 1,
+    height: 52,
     textAlign: "center",
-    fontSize: 24,
-    fontWeight: "900",
-    color: "#111827",
+    fontSize: 22,
+    fontWeight: "800",
+    color: theme.colors.text,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.md,
   },
 });

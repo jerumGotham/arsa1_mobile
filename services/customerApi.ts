@@ -27,3 +27,9 @@ export async function deleteCustomer(id: string) {
   const response = await api.delete(`/customers/${id}`);
   return response.data;
 }
+
+// { [productId]: { price, orderDate } } — last price this customer paid
+export async function getCustomerPrices(id: string) {
+  const response = await api.get(`/customers/${id}/prices`);
+  return response.data.data as Record<string, { price: number; orderDate: string }>;
+}

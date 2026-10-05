@@ -1,43 +1,51 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Modal,
   TextInput,
   Alert,
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  PermissionsAndroid,
 } from "react-native";
-
-import RNBluetoothClassic from "react-native-bluetooth-classic";
-import {
-  SafeAreaView,
-  useSafeAreaInsets,
-} from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "expo-router";
-import ViewShot from "react-native-view-shot";
-import * as MediaLibrary from "expo-media-library";
+import {
+  Check,
+  Minus,
+  Plus,
+  Search,
+  ShoppingBag,
+  UserPlus,
+  X,
+} from "lucide-react-native";
 
 import { theme } from "@/constants/theme";
 import AppInput from "@/components/AppInput";
 import AppButton from "@/components/AppButton";
-import AppCard from "@/components/AppCard";
+import ScreenHeader from "@/components/ScreenHeader";
+import Sheet from "@/components/Sheet";
+import ReceiptModal from "@/components/ReceiptModal";
+import CategoryChips, { CategoryBadge } from "@/components/CategoryChips";
+import EmptyState, { Avatar } from "@/components/EmptyState";
 
 import { getProducts } from "@/services/productApi";
-import { getCustomers, createCustomer } from "@/services/customerApi";
+import { getCategories } from "@/services/categoryApi";
+import {
+  getCustomers,
+  createCustomer,
+  getCustomerPrices,
+} from "@/services/customerApi";
 import { createOrder } from "@/services/orderApi";
+import { errorMessage } from "@/services/api";
+import { peso } from "@/lib/format";
 
 export default function OrdersScreen() {
-  const insets = useSafeAreaInsets();
-  const invoiceRef = useRef<any>(null);
-
   const [products, setProducts] = useState<any[]>([]);
-  const [visibleCount, setVisibleCount] = useState(6);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [categoryId, setCategoryId] = useState("");
+  const [visibleCount, setVisibleCount] = useState(8);
 
   const [customers, setCustomers] = useState<any[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
@@ -54,6 +62,10 @@ export default function OrdersScreen() {
   const [newCustomerContact, setNewCustomerContact] = useState("");
 
   const [cart, setCart] = useState<any[]>([]);
+  // Last price the selected customer paid per product: { [productId]: { price } }
+  const [customerPrices, setCustomerPrices] = useState<
+    Record<string, { price: number; orderDate: string }>
+  >({});
   const [savedOrder, setSavedOrder] = useState<any>(null);
 
   const [loadingProducts, setLoadingProducts] = useState(false);
@@ -61,17 +73,45 @@ export default function OrdersScreen() {
   const [savingCustomer, setSavingCustomer] = useState(false);
   const [savingOrder, setSavingOrder] = useState(false);
 
-  async function loadProducts(value = productSearch) {
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  async function loadProducts(value = productSearch, category = categoryId) {
     try {
       setLoadingProducts(true);
-      setVisibleCount(6);
-      const data = await getProducts(value);
+      setVisibleCount(8);
+      const data = await getProducts(value, category);
       setProducts(data);
     } catch (error) {
       console.log("Products error:", error);
     } finally {
       setLoadingProducts(false);
     }
+  }
+
+  async function loadCategories() {
+    try {
+      setCategories(await getCategories());
+    } catch (error) {
+      console.log("Categories error:", error);
+    }
+  }
+
+  // Search as you type, but wait until typing pauses.
+  function handleProductSearch(text: string) {
+    setProductSearch(text);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => loadProducts(text), 350);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (searchTimer.current) clearTimeout(searchTimer.current);
+    };
+  }, []);
+
+  function handleCategoryChange(value: string) {
+    setCategoryId(value);
+    loadProducts(productSearch, value);
   }
 
   async function searchCustomers(value = customerSearch) {
@@ -104,10 +144,53 @@ export default function OrdersScreen() {
     searchCustomers(text);
   }
 
+  // Master list price, unless this customer has been charged differently before.
+  function defaultPrice(
+    productId: string,
+    listPrice: any,
+    prices = customerPrices,
+  ) {
+    return prices[productId]?.price ?? (Number(listPrice) || 0);
+  }
+
+  // Reprice cart lines the agent has not typed a price for.
+  function applyCustomerPrices(prices: typeof customerPrices) {
+    setCustomerPrices(prices);
+    setCart((prev) =>
+      prev.map((item) => {
+        if (item.priceEdited) return item;
+        const price = defaultPrice(item.productId, item.listPrice, prices);
+        return {
+          ...item,
+          price,
+          priceText: String(price),
+          subtotal: item.quantity * price,
+        };
+      }),
+    );
+  }
+
+  async function loadCustomerPrices(customerId: string) {
+    try {
+      applyCustomerPrices(await getCustomerPrices(customerId));
+    } catch (error) {
+      console.log("Customer prices error:", error);
+      applyCustomerPrices({});
+    }
+  }
+
   function selectCustomer(customer: any) {
     setSelectedCustomer(customer);
     setCustomerSearch(customer.name);
     setCustomers([]);
+    loadCustomerPrices(customer.id);
+  }
+
+  function clearCustomer() {
+    setSelectedCustomer(null);
+    setCustomerSearch("");
+    setCustomers([]);
+    applyCustomerPrices({});
   }
 
   function openAddCustomerModal() {
@@ -135,12 +218,11 @@ export default function OrdersScreen() {
       setSelectedCustomer(customer);
       setCustomerSearch(customer.name);
       setCustomers([]);
+      applyCustomerPrices({}); // brand-new customer: master list prices
       setAddCustomerVisible(false);
-
-      Alert.alert("Success", "Customer added successfully.");
     } catch (error: any) {
       console.log("Create customer error:", error);
-      Alert.alert("Error", error?.message || "Failed to add customer.");
+      Alert.alert("Error", errorMessage(error, "Failed to add customer."));
     } finally {
       setSavingCustomer(false);
     }
@@ -162,14 +244,17 @@ export default function OrdersScreen() {
         );
       }
 
-      const price = Number(product.price) || 0;
+      const price = defaultPrice(product.id, product.price);
 
       return [
         ...prev,
         {
           productId: product.id,
           name: product.name,
+          listPrice: Number(product.price) || 0,
           price,
+          priceText: String(price),
+          priceEdited: false,
           quantity: 1,
           subtotal: price,
         },
@@ -252,11 +337,29 @@ export default function OrdersScreen() {
           ? {
               ...item,
               price,
+              priceText: finalValue, // keep "12." while typing
+              priceEdited: true,
               subtotal: item.quantity * price,
             }
           : item,
       ),
     );
+  }
+
+  function removeFromCart(productId: string) {
+    setCart((prev) => prev.filter((item) => item.productId !== productId));
+  }
+
+  function openCart() {
+    if (!selectedCustomer) {
+      Alert.alert(
+        "Customer Required",
+        "Please select or add a customer first.",
+      );
+      return;
+    }
+
+    setCartVisible(true);
   }
 
   async function handleSaveOrder() {
@@ -269,7 +372,9 @@ export default function OrdersScreen() {
         return;
       }
 
-      if (cart.length === 0) {
+      const items = cart.filter((item) => item.quantity > 0);
+
+      if (items.length === 0) {
         Alert.alert("Cart Empty", "Please add products first.");
         return;
       }
@@ -279,7 +384,7 @@ export default function OrdersScreen() {
       const payload = {
         customerId: selectedCustomer.id,
         deliveryDate: new Date(),
-        items: cart.map((item) => ({
+        items: items.map((item) => ({
           productId: item.productId,
           quantity: item.quantity,
           price: item.price,
@@ -287,144 +392,30 @@ export default function OrdersScreen() {
         })),
       };
 
-      const response = await createOrder(payload);
-      const order = response?.data || response;
+      const order = await createOrder(payload);
 
       setSavedOrder(order);
       setCartVisible(false);
       setInvoiceVisible(true);
       setCart([]);
+      loadProducts(); // refresh remaining stock
     } catch (error: any) {
       console.log("Save order error:", error);
-      Alert.alert("Error", error?.message || "Failed to save order.");
+      Alert.alert("Error", errorMessage(error, "Failed to save order."));
     } finally {
       setSavingOrder(false);
     }
   }
 
-  async function saveInvoiceImage() {
-    try {
-      const permission = await MediaLibrary.requestPermissionsAsync();
-
-      if (!permission.granted) {
-        Alert.alert("Permission Required", "Please allow photo access.");
-        return;
-      }
-
-      const uri = await invoiceRef.current.capture();
-      await MediaLibrary.saveToLibraryAsync(uri);
-
-      Alert.alert("Saved", "Invoice saved to gallery.");
-    } catch (error) {
-      console.log("Save invoice image error:", error);
-      Alert.alert("Error", "Failed to save invoice image.");
-    }
-  }
-
-  async function requestBluetoothPermissions() {
-    if (Platform.OS !== "android") return true;
-
-    if (Platform.Version >= 31) {
-      const granted = await PermissionsAndroid.requestMultiple([
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-      ]);
-
-      return (
-        granted["android.permission.BLUETOOTH_CONNECT"] ===
-          PermissionsAndroid.RESULTS.GRANTED &&
-        granted["android.permission.BLUETOOTH_SCAN"] ===
-          PermissionsAndroid.RESULTS.GRANTED
-      );
-    }
-
-    const granted = await PermissionsAndroid.request(
-      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-    );
-
-    return granted === PermissionsAndroid.RESULTS.GRANTED;
-  }
-
-  async function printInvoice() {
-    try {
-      if (!savedOrder) {
-        Alert.alert("No invoice", "No saved order to print.");
-        return;
-      }
-
-      const allowed = await requestBluetoothPermissions();
-
-      if (!allowed) {
-        Alert.alert(
-          "Permission Required",
-          "Please allow Bluetooth permission.",
-        );
-        return;
-      }
-
-      const device =
-        await RNBluetoothClassic.connectToDevice("86:67:7A:A5:31:29");
-
-      if (!device) {
-        Alert.alert("Printer Error", "Cannot connect to printer.");
-        return;
-      }
-
-      const items = savedOrder.items || [];
-
-      const totalQty = items.reduce(
-        (sum: number, item: any) => sum + Number(item.quantity || 0),
-        0,
-      );
-
-      const money = (value: any) => Number(value || 0).toFixed(0);
-
-      let receipt = "";
-
-      receipt += "        ARSA1\n";
-      receipt += "      ORDER RECEIPT\n";
-      receipt += "--------------------------------\n";
-      receipt += `Contact Person: JOZHEN\n`;
-      receipt += `Contact Number: 09303816198\n`;
-      receipt += `Customer: ${savedOrder.customer?.name || "CUSTOMER"}\n`;
-      receipt += `Address : ${savedOrder.customer?.address || "N/A"}\n`;
-      receipt += "--------------------------------\n";
-      receipt += "ITEM              QTY   TOTAL\n";
-      receipt += "--------------------------------\n";
-
-      for (const item of items) {
-        const name = String(item.product?.name || item.name || "Item").slice(
-          0,
-          16,
-        );
-
-        const qty = String(item.quantity || 0).padStart(3, " ");
-        const subtotal = money(item.subtotal).padStart(7, " ");
-
-        receipt += `${name.padEnd(16, " ")} ${qty} ${subtotal}\n`;
-      }
-
-      receipt += "--------------------------------\n";
-      receipt += `TOTAL QTY: ${totalQty}\n`;
-      receipt += `TOTAL: PHP ${money(savedOrder.totalAmount)}\n`;
-      receipt += "--------------------------------\n";
-      receipt += "        Thank you!\n\n\n";
-
-      await device.write(receipt);
-
-      Alert.alert("Success", "Receipt printed.");
-    } catch (error: any) {
-      console.log("Print invoice error:", error);
-      Alert.alert(
-        "Print Error",
-        error?.message || "Failed to connect or print receipt.",
-      );
-    }
+  function closeReceipt() {
+    setInvoiceVisible(false);
+    clearCustomer();
   }
 
   useFocusEffect(
     useCallback(() => {
-      loadProducts("");
+      loadCategories();
+      loadProducts(productSearch, categoryId);
     }, []),
   );
 
@@ -440,964 +431,699 @@ export default function OrdersScreen() {
     !loadingCustomers;
 
   return (
-    <SafeAreaView
-      style={styles.container}
-      edges={["top", "left", "right", "bottom"]}
-    >
+    <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
       <ScrollView
         contentContainerStyle={[
           styles.content,
-          { paddingBottom: 140 + insets.bottom },
+          { paddingBottom: cart.length ? 120 : 40 },
         ]}
+        keyboardShouldPersistTaps="handled"
       >
-        <Text style={styles.title}>Orders</Text>
-        <Text style={styles.subtitle}>Search customer and add products.</Text>
+        <ScreenHeader
+          eyebrow="New Booking"
+          title="Book Order"
+          subtitle="Choose a customer, then add products."
+        />
 
-        <AppCard>
-          <Text style={styles.sectionTitle}>Customer</Text>
-
-          <AppInput
-            placeholder="Search customer"
-            value={customerSearch}
-            onChangeText={handleCustomerTextChange}
-          />
-
-          {loadingCustomers && (
-            <ActivityIndicator
-              style={{ marginTop: 10 }}
-              color={theme.colors.primary}
-            />
-          )}
-
-          {selectedCustomer && (
-            <View style={styles.selectedCustomerBox}>
-              <Text style={styles.selectedLabel}>Selected Customer</Text>
-              <Text style={styles.selectedName}>{selectedCustomer.name}</Text>
-              <Text style={styles.selectedAddress}>
-                {selectedCustomer.contactNumber ||
-                  selectedCustomer.phone ||
-                  "No contact number"}
-              </Text>
-              <Text style={styles.selectedAddress}>
-                {selectedCustomer.address || "No address"}
-              </Text>
-            </View>
-          )}
-
-          {!selectedCustomer && customers.length > 0 && (
-            <View style={styles.customerResults}>
-              {customers.map((customer) => (
-                <TouchableOpacity
-                  key={customer.id}
-                  style={styles.customerItem}
-                  onPress={() => selectCustomer(customer)}
-                >
-                  <Text style={styles.customerName}>{customer.name}</Text>
-                  <Text style={styles.customerAddress}>
-                    {customer.contactNumber ||
-                      customer.phone ||
-                      "No contact number"}
-                  </Text>
-                  <Text style={styles.customerAddress}>
-                    {customer.address || "No address"}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-
-          {customerNotFound && (
-            <TouchableOpacity
-              style={styles.addCustomerButton}
-              onPress={openAddCustomerModal}
+        {/* Step 1 — customer */}
+        <View style={styles.step}>
+          <View style={styles.stepHeader}>
+            <View
+              style={[styles.stepNumber, selectedCustomer && styles.stepDone]}
             >
-              <Text style={styles.addCustomerButtonText}>
-                + Add "{customerSearch}"
-              </Text>
-            </TouchableOpacity>
+              {selectedCustomer ? (
+                <Check size={14} color={theme.colors.white} />
+              ) : (
+                <Text style={styles.stepNumberText}>1</Text>
+              )}
+            </View>
+            <Text style={styles.stepTitle}>Customer</Text>
+          </View>
+
+          {selectedCustomer ? (
+            <View style={styles.selectedCustomer}>
+              <Avatar name={selectedCustomer.name} size={44} inverse />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.selectedName}>{selectedCustomer.name}</Text>
+                <Text style={styles.selectedInfo} numberOfLines={1}>
+                  {selectedCustomer.phone || "No contact number"}
+                </Text>
+                <Text style={styles.selectedInfo} numberOfLines={1}>
+                  {selectedCustomer.address || "No address"}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={clearCustomer}
+                style={styles.changeButton}
+                hitSlop={8}
+              >
+                <X size={16} color={theme.colors.white} />
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <>
+              <AppInput
+                placeholder="Search customer name or phone"
+                value={customerSearch}
+                onChangeText={handleCustomerTextChange}
+                icon={<Search size={18} color={theme.colors.textMuted} />}
+              />
+
+              {loadingCustomers && (
+                <ActivityIndicator
+                  style={{ marginTop: 10 }}
+                  color={theme.colors.primary}
+                />
+              )}
+
+              {customers.length > 0 && (
+                <View style={styles.results}>
+                  {customers.map((customer, index) => (
+                    <TouchableOpacity
+                      key={customer.id}
+                      style={[
+                        styles.resultItem,
+                        index === customers.length - 1 && {
+                          borderBottomWidth: 0,
+                        },
+                      ]}
+                      onPress={() => selectCustomer(customer)}
+                    >
+                      <Avatar name={customer.name} size={34} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.resultName}>{customer.name}</Text>
+                        <Text style={styles.resultInfo} numberOfLines={1}>
+                          {[customer.phone, customer.address]
+                            .filter(Boolean)
+                            .join(" · ") || "No details"}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              {customerNotFound && (
+                <AppButton
+                  title={`Add "${customerSearch.trim()}" as new customer`}
+                  variant="outline"
+                  onPress={openAddCustomerModal}
+                  icon={<UserPlus size={16} color={theme.colors.text} />}
+                  style={{ marginTop: 10 }}
+                />
+              )}
+            </>
           )}
-        </AppCard>
+        </View>
 
-        <AppCard>
-          <Text style={styles.sectionTitle}>Products</Text>
+        {/* Step 2 — products */}
+        <View style={styles.stepHeader}>
+          <View style={[styles.stepNumber, cart.length > 0 && styles.stepDone]}>
+            {cart.length > 0 ? (
+              <Check size={14} color={theme.colors.white} />
+            ) : (
+              <Text style={styles.stepNumberText}>2</Text>
+            )}
+          </View>
+          <Text style={styles.stepTitle}>Products</Text>
+        </View>
 
-          <AppInput
-            placeholder="Search product"
-            value={productSearch}
-            onChangeText={setProductSearch}
-            style={styles.searchProductInput}
-          />
+        <AppInput
+          placeholder="Search product"
+          value={productSearch}
+          onChangeText={handleProductSearch}
+          icon={<Search size={18} color={theme.colors.textMuted} />}
+        />
 
-          <AppButton
-            title="Search Product"
-            onPress={() => loadProducts(productSearch)}
-          />
-        </AppCard>
+        <CategoryChips
+          categories={categories}
+          value={categoryId}
+          onChange={handleCategoryChange}
+        />
 
         {loadingProducts ? (
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <ActivityIndicator
+            size="large"
+            color={theme.colors.primary}
+            style={{ marginVertical: 24 }}
+          />
+        ) : products.length === 0 ? (
+          <EmptyState
+            icon={<ShoppingBag size={22} color={theme.colors.textMuted} />}
+            title="No products found"
+            message="Try another search or category."
+          />
         ) : (
-          <>
-            {visibleProducts.map((product) => (
-              <AppCard key={product.id}>
-                <View style={styles.productRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.productName}>{product.name}</Text>
-                    <Text style={styles.price}>
-                      ₱{Number(product.price).toFixed(2)}
-                    </Text>
+          <View style={styles.productList}>
+            {visibleProducts.map((product, index) => {
+              const inCart = cart.find((item) => item.productId === product.id);
+              const stock = product.inventory?.remainingQuantity ?? 0;
+              const outOfStock = stock <= 0;
+              const lastPrice = customerPrices[product.id];
+
+              return (
+                <View
+                  key={product.id}
+                  style={[
+                    styles.productItem,
+                    index === visibleProducts.length - 1 && {
+                      borderBottomWidth: 0,
+                    },
+                  ]}
+                >
+                  <View style={styles.productRow}>
+                    <View style={{ flex: 1, gap: 6 }}>
+                      <CategoryBadge name={product.category?.name} />
+                      <Text style={styles.productName}>{product.name}</Text>
+                      <Text style={styles.productMeta}>
+                        <Text style={styles.productPrice}>
+                          {peso(defaultPrice(product.id, product.price), 2)}
+                        </Text>
+                        {"  ·  "}
+                        {outOfStock ? "Out of stock" : `${stock} in stock`}
+                      </Text>
+                      {lastPrice &&
+                      lastPrice.price !== Number(product.price) ? (
+                        <Text style={styles.lastPrice}>
+                          Customer price · list {peso(product.price, 2)}
+                        </Text>
+                      ) : null}
+                    </View>
+
+                    {inCart ? (
+                      <View style={styles.stepper}>
+                        <TouchableOpacity
+                          style={styles.stepperButton}
+                          onPress={() => decreaseQty(product.id)}
+                        >
+                          <Minus size={16} color={theme.colors.white} />
+                        </TouchableOpacity>
+                        <Text style={styles.stepperValue}>
+                          {inCart.quantity}
+                        </Text>
+                        <TouchableOpacity
+                          style={styles.stepperButton}
+                          onPress={() => increaseQty(product.id)}
+                        >
+                          <Plus size={16} color={theme.colors.white} />
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        style={[
+                          styles.addButton,
+                          outOfStock && styles.addDisabled,
+                        ]}
+                        disabled={outOfStock}
+                        onPress={() => addToCart(product)}
+                      >
+                        <Plus size={16} color={theme.colors.text} />
+                        <Text style={styles.addButtonText}>Add</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
 
-                  <TouchableOpacity
-                    style={styles.addProductButton}
-                    onPress={() => addToCart(product)}
-                  >
-                    <Text style={styles.addProductButtonText}>Add</Text>
-                  </TouchableOpacity>
+                  {inCart ? (
+                    <View style={styles.inlinePriceRow}>
+                      <Text style={styles.inlinePriceLabel}>Price</Text>
+                      <View style={styles.priceField}>
+                        <Text style={styles.pricePeso}>₱</Text>
+                        <TextInput
+                          style={styles.priceInput}
+                          value={inCart.priceText ?? String(inCart.price)}
+                          keyboardType="decimal-pad"
+                          selectTextOnFocus
+                          selectionColor={theme.colors.text}
+                          onChangeText={(value) =>
+                            updatePrice(product.id, value)
+                          }
+                        />
+                      </View>
+                      <Text style={styles.cartSubtotal}>
+                        {peso(inCart.subtotal, 2)}
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
-              </AppCard>
-            ))}
+              );
+            })}
+          </View>
+        )}
 
-            {visibleCount < products.length && (
-              <TouchableOpacity
-                style={styles.loadMoreButton}
-                onPress={() => setVisibleCount((prev) => prev + 6)}
-              >
-                <Text style={styles.loadMoreText}>Load More</Text>
-              </TouchableOpacity>
-            )}
-          </>
+        {!loadingProducts && visibleCount < products.length && (
+          <AppButton
+            title={`Load more (${products.length - visibleCount} left)`}
+            variant="ghost"
+            onPress={() => setVisibleCount((prev) => prev + 8)}
+          />
         )}
       </ScrollView>
 
       {cart.length > 0 && (
         <TouchableOpacity
-          style={[styles.floatingCart, { bottom: 28 + insets.bottom }]}
-          onPress={() => {
-            if (!selectedCustomer) {
-              Alert.alert(
-                "Customer Required",
-                "Please select or add a customer first.",
-              );
-              return;
-            }
-
-            setCartVisible(true);
-          }}
+          activeOpacity={0.9}
+          style={styles.cartBar}
+          onPress={openCart}
         >
-          <Text style={styles.cartIcon}>🛒</Text>
           <View style={styles.cartBadge}>
             <Text style={styles.cartBadgeText}>{totalItems}</Text>
           </View>
-          <Text style={styles.cartTotal}>₱{totalAmount.toFixed(0)}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.cartBarLabel}>Review Order</Text>
+            <Text style={styles.cartBarSub} numberOfLines={1}>
+              {selectedCustomer?.name || "Select a customer first"}
+            </Text>
+          </View>
+          <Text style={styles.cartBarTotal}>{peso(totalAmount)}</Text>
         </TouchableOpacity>
       )}
 
-      <Modal visible={addCustomerVisible} animationType="slide" transparent>
-        <SafeAreaView style={styles.modalSafeArea} edges={["top", "bottom"]}>
-          <KeyboardAvoidingView
-            style={styles.modalOverlay}
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-          >
-            <View
-              style={[
-                styles.addCustomerModal,
-                { paddingBottom: 18 + insets.bottom },
-              ]}
-            >
-              <Text style={styles.modalTitle}>Add Customer</Text>
+      <Sheet
+        visible={addCustomerVisible}
+        onClose={() => setAddCustomerVisible(false)}
+        title="New Customer"
+        subtitle="Save and use for this order"
+        footer={
+          <>
+            <AppButton
+              title="Cancel"
+              variant="outline"
+              onPress={() => setAddCustomerVisible(false)}
+              style={{ flex: 1 }}
+            />
+            <AppButton
+              title="Save Customer"
+              onPress={handleCreateCustomer}
+              loading={savingCustomer}
+              style={{ flex: 1 }}
+            />
+          </>
+        }
+      >
+        <AppInput
+          label="Name"
+          placeholder="Customer name"
+          value={newCustomerName}
+          onChangeText={setNewCustomerName}
+        />
+        <AppInput
+          label="Contact Number"
+          placeholder="09xx xxx xxxx"
+          keyboardType="phone-pad"
+          value={newCustomerContact}
+          onChangeText={setNewCustomerContact}
+        />
+        <AppInput
+          label="Address"
+          placeholder="Delivery address"
+          value={newCustomerAddress}
+          onChangeText={setNewCustomerAddress}
+          multiline
+          style={{ minHeight: 72, textAlignVertical: "top" }}
+        />
+      </Sheet>
 
-              <TextInput
-                style={styles.input}
-                placeholder="Customer name"
-                value={newCustomerName}
-                placeholderTextColor="#64748B"
-                onChangeText={setNewCustomerName}
-              />
-
-              <TextInput
-                style={styles.input}
-                placeholder="Contact number"
-                keyboardType="phone-pad"
-                placeholderTextColor="#64748B"
-                value={newCustomerContact}
-                onChangeText={setNewCustomerContact}
-              />
-
-              <TextInput
-                style={[styles.input, styles.addressInput]}
-                placeholder="Address"
-                value={newCustomerAddress}
-                placeholderTextColor="#64748B"
-                onChangeText={setNewCustomerAddress}
-                multiline
-              />
-
-              <View style={styles.modalActions}>
-                <TouchableOpacity
-                  style={styles.cancelButton}
-                  onPress={() => setAddCustomerVisible(false)}
-                >
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.saveButton}
-                  onPress={handleCreateCustomer}
-                  disabled={savingCustomer}
-                >
-                  {savingCustomer ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.saveButtonText}>Save Customer</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
+      <Sheet
+        visible={cartVisible}
+        onClose={() => setCartVisible(false)}
+        title="Order Summary"
+        subtitle={`${totalItems} item${totalItems === 1 ? "" : "s"} for ${
+          selectedCustomer?.name || ""
+        }`}
+        footer={
+          <View style={{ flex: 1, gap: 12 }}>
+            <View style={styles.totalBox}>
+              <Text style={styles.totalLabel}>Total</Text>
+              <Text style={styles.totalValue}>{peso(totalAmount, 2)}</Text>
             </View>
-          </KeyboardAvoidingView>
-        </SafeAreaView>
-      </Modal>
-
-      <Modal visible={cartVisible} animationType="slide" transparent>
-        <SafeAreaView style={styles.modalSafeArea} edges={["top", "bottom"]}>
-          <KeyboardAvoidingView
-            style={styles.modalOverlay}
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-          >
-            <View
-              style={[styles.cartModal, { paddingBottom: 18 + insets.bottom }]}
-            >
-              <Text style={styles.modalTitle}>Cart Summary</Text>
-
-              <View style={styles.cartCustomerBox}>
-                <Text style={styles.cartCustomerLabel}>Selected Customer</Text>
-                <Text style={styles.cartCustomerName}>
-                  {selectedCustomer?.name}
-                </Text>
-                <Text style={styles.cartCustomerInfo}>
-                  {selectedCustomer?.contactNumber ||
-                    selectedCustomer?.phone ||
-                    "No contact number"}
-                </Text>
-                <Text style={styles.cartCustomerInfo}>
-                  {selectedCustomer?.address || "No address"}
-                </Text>
-              </View>
-
-              <ScrollView
-                style={styles.cartScroll}
-                keyboardShouldPersistTaps="handled"
+            <AppButton
+              title="Confirm & Save Order"
+              onPress={handleSaveOrder}
+              loading={savingOrder}
+            />
+          </View>
+        }
+      >
+        {cart.map((item) => (
+          <View key={item.productId} style={styles.cartItem}>
+            <View style={styles.cartItemTop}>
+              <Text style={styles.cartName}>{item.name}</Text>
+              <TouchableOpacity
+                onPress={() => removeFromCart(item.productId)}
+                hitSlop={8}
               >
-                {cart.map((item) => (
-                  <View key={item.productId} style={styles.cartItem}>
-                    <View style={styles.cartProductInfo}>
-                      <Text style={styles.cartName}>{item.name}</Text>
-
-                      <View style={styles.priceEditRow}>
-                        <Text style={styles.priceEditLabel}>Price</Text>
-                        <TextInput
-                          style={styles.priceInput}
-                          value={String(item.price)}
-                          keyboardType="decimal-pad"
-                          placeholderTextColor="#64748B"
-                          onChangeText={(value) =>
-                            updatePrice(item.productId, value)
-                          }
-                        />
-                      </View>
-
-                      <Text style={styles.cartPrice}>
-                        ₱{Number(item.price).toFixed(2)} x {item.quantity} = ₱
-                        {Number(item.subtotal).toFixed(2)}
-                      </Text>
-                    </View>
-
-                    <View style={styles.qtyControl}>
-                      <TouchableOpacity
-                        style={styles.qtyButton}
-                        onPress={() => decreaseQty(item.productId)}
-                      >
-                        <Text style={styles.qtyText}>-</Text>
-                      </TouchableOpacity>
-
-                      <TextInput
-                        style={styles.qtyInput}
-                        value={String(item.quantity)}
-                        placeholderTextColor="#64748B"
-                        keyboardType="number-pad"
-                        onChangeText={(value) =>
-                          updateQty(item.productId, value)
-                        }
-                      />
-
-                      <TouchableOpacity
-                        style={styles.qtyButton}
-                        onPress={() => increaseQty(item.productId)}
-                      >
-                        <Text style={styles.qtyText}>+</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ))}
-              </ScrollView>
-
-              <View style={styles.totalBox}>
-                <Text style={styles.totalLabel}>Total</Text>
-                <Text style={styles.totalValue}>₱{totalAmount.toFixed(2)}</Text>
-              </View>
-
-              <View style={styles.modalActions}>
-                <TouchableOpacity
-                  style={styles.cancelButton}
-                  onPress={() => setCartVisible(false)}
-                >
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.saveButton}
-                  onPress={handleSaveOrder}
-                  disabled={savingOrder}
-                >
-                  {savingOrder ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.saveButtonText}>Save Order</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
+                <X size={16} color={theme.colors.textMuted} />
+              </TouchableOpacity>
             </View>
-          </KeyboardAvoidingView>
-        </SafeAreaView>
-      </Modal>
 
-      <Modal visible={invoiceVisible} animationType="fade" transparent>
-        <SafeAreaView style={styles.modalSafeArea} edges={["top", "bottom"]}>
-          <View
-            style={[
-              styles.receiptOverlay,
-              {
-                paddingTop: 18 + insets.top,
-                paddingBottom: 18 + insets.bottom,
-              },
-            ]}
-          >
-            <View style={styles.receiptModalCard}>
-              <View style={styles.receiptModalHeader}>
-                <View>
-                  <Text style={styles.receiptModalTitle}>Order Receipt</Text>
-                  <Text style={styles.receiptModalSubtitle}>
-                    {savedOrder?.items?.length || 0} items
-                  </Text>
-                </View>
+            <View style={styles.cartItemBottom}>
+              <View style={styles.priceField}>
+                <Text style={styles.pricePeso}>₱</Text>
+                <TextInput
+                  style={styles.priceInput}
+                  value={item.priceText ?? String(item.price)}
+                  keyboardType="decimal-pad"
+                  selectTextOnFocus
+                  selectionColor={theme.colors.text}
+                  onChangeText={(value) => updatePrice(item.productId, value)}
+                />
+              </View>
 
+              <View style={styles.stepper}>
                 <TouchableOpacity
-                  style={styles.receiptCloseIcon}
-                  onPress={() => setInvoiceVisible(false)}
+                  style={styles.stepperButton}
+                  onPress={() => decreaseQty(item.productId)}
                 >
-                  <Text style={styles.receiptCloseIconText}>×</Text>
+                  <Minus size={16} color={theme.colors.white} />
+                </TouchableOpacity>
+                <TextInput
+                  style={styles.qtyInput}
+                  value={String(item.quantity)}
+                  keyboardType="number-pad"
+                  selectionColor={theme.colors.text}
+                  onChangeText={(value) => updateQty(item.productId, value)}
+                />
+                <TouchableOpacity
+                  style={styles.stepperButton}
+                  onPress={() => increaseQty(item.productId)}
+                >
+                  <Plus size={16} color={theme.colors.white} />
                 </TouchableOpacity>
               </View>
 
-              {savedOrder && (
-                <ViewShot
-                  ref={invoiceRef}
-                  options={{ format: "png", quality: 1 }}
-                >
-                  <View style={styles.receiptBox}>
-                    <View style={styles.receiptTopArea}>
-                      <Text style={styles.receiptStoreName}>PLASTIKAN</Text>
-                      <Text style={styles.receiptCustomerName}>
-                        {(
-                          savedOrder.customer?.name || "CUSTOMER"
-                        ).toUpperCase()}
-                      </Text>
-                    </View>
-
-                    <View style={styles.receiptInfoArea}>
-                      <Text style={styles.receiptInfoText}>
-                        Contact:{" "}
-                        {savedOrder.customer?.phone ||
-                          savedOrder.customer?.contactNumber ||
-                          "N/A"}
-                      </Text>
-
-                      <Text style={styles.receiptInfoText}>
-                        Address: {savedOrder.customer?.address || "N/A"}
-                      </Text>
-                    </View>
-
-                    <View style={styles.receiptHeaderRow}>
-                      <Text style={[styles.receiptHeaderCell, { flex: 2.1 }]}>
-                        Item
-                      </Text>
-                      <Text style={styles.receiptHeaderCell}>Qty</Text>
-                      <Text style={styles.receiptHeaderCell}>Price</Text>
-                      <Text
-                        style={[styles.receiptHeaderCell, styles.noRightBorder]}
-                      >
-                        Total
-                      </Text>
-                    </View>
-
-                    <ScrollView
-                      style={styles.receiptItemsScroll}
-                      nestedScrollEnabled
-                      showsVerticalScrollIndicator
-                    >
-                      {savedOrder.items.map((item: any, index: number) => (
-                        <View
-                          key={item.id || `${item.productId}-${index}`}
-                          style={styles.receiptItemRow}
-                        >
-                          <Text style={[styles.receiptCell, { flex: 2.1 }]}>
-                            {item.product?.name || item.name}
-                          </Text>
-                          <Text style={styles.receiptCell}>
-                            {item.quantity}
-                          </Text>
-                          <Text style={styles.receiptCell}>
-                            ₱{Number(item.price).toFixed(0)}
-                          </Text>
-                          <Text
-                            style={[styles.receiptCell, styles.noRightBorder]}
-                          >
-                            ₱
-                            {Number(
-                              item.subtotal || item.quantity * item.price,
-                            ).toFixed(0)}
-                          </Text>
-                        </View>
-                      ))}
-                    </ScrollView>
-
-                    <View style={styles.receiptSummary}>
-                      <View style={styles.receiptGrandTotalRow}>
-                        <Text style={styles.receiptGrandTotalLabel}>
-                          Total Qty:{" "}
-                          {savedOrder.items.reduce(
-                            (sum: number, item: any) => sum + item.quantity,
-                            0,
-                          )}
-                        </Text>
-
-                        <Text style={styles.receiptGrandTotalValue}>
-                          ₱{Number(savedOrder.totalAmount).toFixed(0)}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                </ViewShot>
-              )}
-
-              <View style={styles.receiptActions}>
-                <TouchableOpacity
-                  style={[
-                    styles.receiptActionButton,
-                    styles.receiptCancelButton,
-                  ]}
-                  onPress={() => {
-                    setInvoiceVisible(false);
-                    setProductSearch("");
-                    setSelectedCustomer(null);
-                    setCustomerSearch("");
-                  }}
-                >
-                  <Text style={styles.receiptCancelButtonText}>Close</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.receiptActionButton, styles.receiptSaveButton]}
-                  onPress={saveInvoiceImage}
-                >
-                  <Text style={styles.receiptActionButtonText}>Save</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.receiptActionButton,
-                    styles.receiptPrintButton,
-                  ]}
-                  onPress={printInvoice}
-                >
-                  <Text style={styles.receiptActionButtonText}>Print</Text>
-                </TouchableOpacity>
-              </View>
+              <Text style={styles.cartSubtotal}>{peso(item.subtotal, 2)}</Text>
             </View>
           </View>
-        </SafeAreaView>
-      </Modal>
+        ))}
+      </Sheet>
+
+      <ReceiptModal
+        visible={invoiceVisible}
+        order={savedOrder}
+        onClose={closeReceipt}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
-  content: { padding: 16, gap: 12 },
+  content: { padding: theme.spacing.md, paddingTop: 12, gap: 14 },
 
-  title: { fontSize: 30, fontWeight: "900", color: theme.colors.text },
-  subtitle: { color: theme.colors.textMuted, fontWeight: "700" },
-
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "900",
+  step: {
+    backgroundColor: theme.colors.white,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    padding: theme.spacing.md,
+    gap: 12,
+  },
+  stepHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  stepNumber: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 1.5,
+    borderColor: theme.colors.text,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepDone: {
+    backgroundColor: theme.colors.primary,
+  },
+  stepNumberText: {
+    fontWeight: "800",
+    fontSize: 12,
     color: theme.colors.text,
-    marginBottom: 10,
+  },
+  stepTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    letterSpacing: -0.3,
+    color: theme.colors.text,
   },
 
-  selectedCustomerBox: {
-    marginTop: 12,
-    backgroundColor: "#DCFCE7",
-    padding: 12,
-    borderRadius: 12,
+  selectedCustomer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.primary,
   },
-  selectedLabel: { color: "#166534", fontWeight: "900", fontSize: 12 },
   selectedName: {
-    marginTop: 4,
-    color: "#14532D",
-    fontWeight: "900",
+    color: theme.colors.white,
+    fontWeight: "800",
     fontSize: 16,
   },
-  selectedAddress: { marginTop: 2, color: "#166534", fontWeight: "700" },
+  selectedInfo: {
+    marginTop: 2,
+    color: theme.colors.inverseMuted,
+    fontWeight: "500",
+    fontSize: 13,
+  },
+  changeButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: "#262626",
+    alignItems: "center",
+    justifyContent: "center",
+  },
 
-  customerResults: {
-    marginTop: 10,
+  results: {
     borderWidth: 1,
-    borderColor: "#e5e7eb",
-    borderRadius: 12,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.md,
     overflow: "hidden",
   },
-  customerItem: {
+  resultItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
     padding: 12,
-    backgroundColor: "#fff",
+    backgroundColor: theme.colors.white,
     borderBottomWidth: 1,
-    borderBottomColor: "#f1f5f9",
+    borderBottomColor: theme.colors.border,
   },
-  customerName: { fontWeight: "900", color: "#111827" },
-  customerAddress: { marginTop: 3, color: "#6b7280", fontWeight: "600" },
+  resultName: { fontWeight: "700", color: theme.colors.text },
+  resultInfo: { marginTop: 2, color: theme.colors.textMuted, fontSize: 12 },
 
-  addCustomerButton: {
-    marginTop: 12,
-    backgroundColor: theme.colors.primary,
-    paddingVertical: 13,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  addCustomerButtonText: { color: "#fff", fontWeight: "900" },
-
-  productRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  productName: { fontSize: 16, fontWeight: "900", color: theme.colors.text },
-  price: { marginTop: 4, color: theme.colors.textMuted, fontWeight: "800" },
-
-  addProductButton: {
-    backgroundColor: theme.colors.primary,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 14,
-  },
-  addProductButtonText: { color: "#fff", fontWeight: "900" },
-
-  loadMoreButton: {
-    paddingVertical: 15,
-    borderRadius: 14,
-    alignItems: "center",
-    backgroundColor: "#e5e7eb",
-  },
-  loadMoreText: { color: "#111827", fontWeight: "900" },
-
-  floatingCart: {
-    position: "absolute",
-    right: 18,
-    minWidth: 84,
-    height: 74,
-    borderRadius: 37,
-    backgroundColor: theme.colors.background,
-    justifyContent: "center",
-    alignItems: "center",
-    elevation: 10,
-    shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-  },
-  cartIcon: { fontSize: 27 },
-  cartBadge: {
-    position: "absolute",
-    top: -5,
-    right: -5,
-    backgroundColor: "#41ab7b",
-    minWidth: 28,
-    height: 28,
-    borderRadius: 14,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 7,
-  },
-  cartBadgeText: {
-    color: "#fff",
-    fontWeight: "900",
-    fontSize: 12,
-  },
-  cartTotal: {
-    color: theme.colors.primary,
-    fontSize: 12,
-    fontWeight: "900",
-    marginTop: 2,
-  },
-
-  modalSafeArea: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.55)",
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-  },
-
-  addCustomerModal: {
-    backgroundColor: "#fff",
-    padding: 18,
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-  },
-  cartModal: {
-    backgroundColor: "#fff",
-    padding: 18,
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-    maxHeight: "92%",
-  },
-
-  modalTitle: {
-    fontSize: 24,
-    fontWeight: "900",
-    marginBottom: 14,
-    color: "#111827",
-  },
-
-  input: {
+  productList: {
+    backgroundColor: theme.colors.white,
+    borderRadius: theme.radius.lg,
     borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 10,
+    borderColor: theme.colors.border,
+    overflow: "hidden",
+  },
+  productItem: {
+    padding: 14,
+    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  productRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  lastPrice: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: theme.colors.textMuted,
+  },
+  inlinePriceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 10,
+    borderRadius: theme.radius.md,
+    backgroundColor: theme.colors.surface,
+  },
+  inlinePriceLabel: {
+    ...theme.eyebrow,
+    fontSize: 10,
+    color: theme.colors.textMuted,
+  },
+  productName: {
+    fontSize: 15,
     fontWeight: "700",
-    backgroundColor: "#FFFFFF",
-    color: "#111827",
+    color: theme.colors.text,
   },
-  addressInput: {
-    minHeight: 80,
-    textAlignVertical: "top",
-  },
-
-  modalActions: { flexDirection: "row", gap: 10, marginTop: 12 },
-  cancelButton: {
-    flex: 1,
-    backgroundColor: "#e5e7eb",
-    paddingVertical: 15,
-    borderRadius: 14,
-    alignItems: "center",
-  },
-  cancelButtonText: { color: "#111827", fontWeight: "900" },
-  saveButton: {
-    flex: 1,
-    backgroundColor: theme.colors.primary,
-    paddingVertical: 15,
-    borderRadius: 14,
-    alignItems: "center",
-  },
-  saveButtonText: { color: "#fff", fontWeight: "900" },
-
-  cartScroll: {
-    maxHeight: 360,
-  },
-  cartItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e5e7eb",
-  },
-  cartProductInfo: {
-    flex: 1,
-  },
-  cartName: { fontWeight: "900", color: "#111827" },
-  cartPrice: { marginTop: 5, color: "#6b7280", fontWeight: "700" },
-
-  priceEditRow: {
-    marginTop: 8,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  priceEditLabel: {
+  productMeta: {
     fontSize: 12,
-    fontWeight: "900",
-    color: "#6B7280",
+    color: theme.colors.textMuted,
+    fontWeight: "500",
   },
-  priceInput: {
-    width: 90,
+  productPrice: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: theme.colors.text,
+  },
+  addButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 14,
     height: 38,
+    borderRadius: theme.radius.pill,
     borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    fontWeight: "900",
-    color: "#111827",
-    backgroundColor: "#fff",
+    borderColor: theme.colors.text,
+  },
+  addDisabled: {
+    opacity: 0.3,
+  },
+  addButtonText: {
+    fontWeight: "700",
+    color: theme.colors.text,
   },
 
-  qtyControl: {
+  stepper: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
   },
-  qtyButton: {
-    width: 36,
+  stepperButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: theme.colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepperValue: {
+    minWidth: 26,
+    textAlign: "center",
+    fontWeight: "800",
+    fontSize: 15,
+    color: theme.colors.text,
+  },
+
+  cartBar: {
+    position: "absolute",
+    bottom: 14,
+    left: 16,
+    right: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: theme.radius.lg,
+    backgroundColor: theme.colors.primary,
+    ...theme.shadowStrong,
+  },
+  cartBadge: {
+    minWidth: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: theme.colors.primary,
-    justifyContent: "center",
+    paddingHorizontal: 8,
+    backgroundColor: theme.colors.white,
     alignItems: "center",
+    justifyContent: "center",
   },
-  qtyText: { color: "#fff", fontSize: 22, fontWeight: "900" },
-  qtyInput: {
-    width: 54,
-    height: 40,
+  cartBadgeText: {
+    fontWeight: "800",
+    color: theme.colors.text,
+  },
+  cartBarLabel: {
+    color: theme.colors.white,
+    fontWeight: "800",
+    fontSize: 15,
+  },
+  cartBarSub: {
+    marginTop: 1,
+    color: theme.colors.inverseMuted,
+    fontSize: 12,
+  },
+  cartBarTotal: {
+    color: theme.colors.white,
+    fontWeight: "800",
+    fontSize: 18,
+    letterSpacing: -0.4,
+  },
+
+  cartItem: {
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+    gap: 10,
+  },
+  cartItemTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  cartName: {
+    flex: 1,
+    fontWeight: "700",
+    fontSize: 15,
+    color: theme.colors.text,
+  },
+  cartItemBottom: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  priceField: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: 96,
+    height: 38,
     borderWidth: 1,
-    borderColor: "#d1d5db",
-    borderRadius: 12,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.sm + 2,
+    paddingHorizontal: 10,
+  },
+  pricePeso: {
+    color: theme.colors.textMuted,
+    fontWeight: "700",
+    marginRight: 4,
+  },
+  priceInput: {
+    flex: 1,
+    fontWeight: "700",
+    color: theme.colors.text,
+    paddingVertical: 0,
+  },
+  qtyInput: {
+    width: 44,
+    height: 36,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.sm + 2,
     textAlign: "center",
-    fontWeight: "900",
-    fontSize: 16,
-    color: "#111827",
+    fontWeight: "800",
+    fontSize: 15,
+    color: theme.colors.text,
+    paddingVertical: 0,
+  },
+  cartSubtotal: {
+    flex: 1,
+    textAlign: "right",
+    fontWeight: "800",
+    color: theme.colors.text,
   },
 
   totalBox: {
-    marginTop: 14,
-    padding: 16,
-    borderRadius: 18,
-    backgroundColor: theme.colors.primary,
     flexDirection: "row",
     justifyContent: "space-between",
-  },
-  totalLabel: { color: "#fff", fontWeight: "900", fontSize: 16 },
-  totalValue: { color: "#fff", fontWeight: "900", fontSize: 24 },
-
-  cartCustomerBox: {
-    backgroundColor: "#DCFCE7",
-    padding: 14,
-    borderRadius: 14,
-    marginBottom: 12,
-  },
-  cartCustomerLabel: {
-    color: "#166534",
-    fontWeight: "900",
-    fontSize: 12,
-  },
-  cartCustomerName: {
-    marginTop: 4,
-    color: "#14532D",
-    fontWeight: "900",
-    fontSize: 17,
-  },
-  cartCustomerInfo: {
-    marginTop: 2,
-    color: "#166534",
-    fontWeight: "700",
-  },
-
-  searchProductInput: {
-    borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 10,
-    fontWeight: "700",
-    backgroundColor: "#fff",
-  },
-
-  receiptOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.65)",
-    justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 18,
-  },
-  receiptModalCard: {
-    width: "100%",
-    maxWidth: 390,
-    maxHeight: "90%",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 28,
-    padding: 18,
-  },
-  receiptModalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 14,
-  },
-  receiptModalTitle: {
-    fontSize: 20,
-    fontWeight: "900",
-    color: "#111827",
-  },
-  receiptModalSubtitle: {
-    marginTop: 3,
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#6B7280",
-  },
-  receiptCloseIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#F3F4F6",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  receiptCloseIconText: {
-    fontSize: 24,
-    lineHeight: 27,
-    color: "#111827",
-    fontWeight: "800",
-  },
-
-  receiptBox: {
-    width: "100%",
-    maxHeight: 560,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    overflow: "hidden",
-  },
-  receiptTopArea: {
-    paddingVertical: 18,
-    paddingHorizontal: 14,
-    alignItems: "center",
-    backgroundColor: "#F9FAFB",
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
-  },
-  receiptStoreName: {
-    fontSize: 11,
-    fontWeight: "900",
-    color: "#166534",
-    letterSpacing: 2,
-    marginBottom: 6,
-  },
-  receiptCustomerName: {
-    fontSize: 22,
-    fontWeight: "900",
-    color: "#111827",
-    textAlign: "center",
-  },
-  receiptInfoArea: {
-    padding: 12,
-    gap: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
-  },
-  receiptInfoText: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#111827",
-  },
-  receiptHeaderRow: {
-    flexDirection: "row",
-    backgroundColor: "#F3F4F6",
-    borderBottomWidth: 1,
-    borderBottomColor: "#E5E7EB",
-  },
-  receiptHeaderCell: {
-    flex: 1,
-    fontSize: 11,
-    fontWeight: "900",
-    color: "#374151",
-    textAlign: "center",
-    paddingVertical: 11,
     paddingHorizontal: 4,
-    borderRightWidth: 1,
-    borderRightColor: "#E5E7EB",
   },
-  receiptItemsScroll: {
-    maxHeight: 300,
+  totalLabel: {
+    ...theme.eyebrow,
+    color: theme.colors.textMuted,
   },
-  receiptItemRow: {
-    flexDirection: "row",
-    minHeight: 42,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  receiptCell: {
-    flex: 1,
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#111827",
-    textAlign: "center",
-    paddingVertical: 11,
-    paddingHorizontal: 3,
-    borderRightWidth: 1,
-    borderRightColor: "#F3F4F6",
-  },
-  noRightBorder: {
-    borderRightWidth: 0,
-  },
-  receiptSummary: {
-    padding: 12,
-    backgroundColor: "#FFFFFF",
-  },
-  receiptGrandTotalRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    backgroundColor: "#166534",
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-  },
-  receiptGrandTotalLabel: {
-    fontSize: 15,
-    fontWeight: "900",
-    color: "#FFFFFF",
-  },
-  receiptGrandTotalValue: {
-    fontSize: 22,
-    fontWeight: "900",
-    color: "#FFFFFF",
-  },
-  receiptActions: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 16,
-  },
-  receiptActionButton: {
-    flex: 1,
-    height: 48,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  receiptCancelButton: {
-    backgroundColor: "#E5E7EB",
-  },
-  receiptSaveButton: {
-    backgroundColor: "#166534",
-  },
-  receiptPrintButton: {
-    backgroundColor: "#111827",
-  },
-  receiptCancelButtonText: {
-    color: "#111827",
-    fontSize: 13,
-    fontWeight: "900",
-  },
-  receiptActionButtonText: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "900",
+  totalValue: {
+    fontSize: 26,
+    fontWeight: "800",
+    letterSpacing: -0.8,
+    color: theme.colors.text,
   },
 });
