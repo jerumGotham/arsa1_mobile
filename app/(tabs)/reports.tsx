@@ -150,6 +150,7 @@ export default function ReportsScreen() {
         }
       >
         <ScreenHeader
+          back
           eyebrow="Analytics"
           title="Reports"
           subtitle="Today’s sales and downloadable Excel report"

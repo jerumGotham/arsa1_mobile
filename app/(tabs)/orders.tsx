@@ -350,6 +350,24 @@ export default function OrdersScreen() {
     setCart((prev) => prev.filter((item) => item.productId !== productId));
   }
 
+  function confirmClearCart() {
+    Alert.alert(
+      "Remove Order",
+      "Remove all items from this order? This cannot be undone.",
+      [
+        { text: "Keep", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: () => {
+            setCart([]);
+            setCartVisible(false);
+          },
+        },
+      ],
+    );
+  }
+
   function openCart() {
     if (!selectedCustomer) {
       Alert.alert(
@@ -695,6 +713,14 @@ export default function OrdersScreen() {
             </Text>
           </View>
           <Text style={styles.cartBarTotal}>{peso(totalAmount)}</Text>
+          <TouchableOpacity
+            style={styles.cartBarClear}
+            onPress={confirmClearCart}
+            hitSlop={10}
+            accessibilityLabel="Remove order"
+          >
+            <X size={16} color={theme.colors.white} />
+          </TouchableOpacity>
         </TouchableOpacity>
       )}
 
@@ -1029,6 +1055,14 @@ const styles = StyleSheet.create({
   cartBadgeText: {
     fontWeight: "800",
     color: theme.colors.text,
+  },
+  cartBarClear: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: "#262626",
+    alignItems: "center",
+    justifyContent: "center",
   },
   cartBarLabel: {
     color: theme.colors.white,

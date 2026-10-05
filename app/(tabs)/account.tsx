@@ -15,6 +15,7 @@ import {
   ChevronRight,
   KeyRound,
   LogOut,
+  BarChart3,
   Tags,
   UsersRound,
 } from "lucide-react-native";
@@ -89,6 +90,12 @@ export default function AccountScreen() {
           <>
             <Text style={styles.sectionLabel}>Administration</Text>
             <View style={styles.menu}>
+              <MenuRow
+                icon={<BarChart3 size={18} color={theme.colors.text} />}
+                title="Reports"
+                subtitle="Sales summary and Excel download"
+                onPress={() => router.push("/reports")}
+              />
               <MenuRow
                 icon={<UsersRound size={18} color={theme.colors.text} />}
                 title="Team & Agents"
